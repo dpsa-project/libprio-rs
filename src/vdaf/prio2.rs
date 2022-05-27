@@ -6,7 +6,7 @@
 use crate::{
     client as v2_client,
     codec::{CodecError, Decode, Encode, ParameterizedDecode},
-    field::{FieldElement, FieldPriov2},
+    field::{FieldElement, Prio2Field},
     prng::Prng,
     server as v2_server,
     util::proof_length,
@@ -34,7 +34,7 @@ impl Prio2 {
     pub fn new(input_len: usize) -> Result<Self, VdafError> {
         let n = (input_len + 1).next_power_of_two();
         if let Ok(size) = u32::try_from(2 * n) {
-            if size > FieldPriov2::generator_order() {
+            if size > Prio2Field::generator_order() {
                 return Err(VdafError::Uncategorized(
                     "input size exceeds field capacity".into(),
                 ));
@@ -53,9 +53,9 @@ impl Vdaf for Prio2 {
     type Measurement = Vec<u32>;
     type AggregateResult = Vec<u32>;
     type AggregationParam = ();
-    type InputShare = Share<FieldPriov2, 32>;
-    type OutputShare = OutputShare<FieldPriov2>;
-    type AggregateShare = AggregateShare<FieldPriov2>;
+    type InputShare = Share<Prio2Field, 32>;
+    type OutputShare = OutputShare<Prio2Field>;
+    type AggregateShare = AggregateShare<Prio2Field>;
 
     fn num_aggregators(&self) -> usize {
         // Prio2 can easily be extended to support more than two Aggregators.
@@ -64,17 +64,17 @@ impl Vdaf for Prio2 {
 }
 
 impl Client for Prio2 {
-    fn shard(&self, measurement: &Vec<u32>) -> Result<Vec<Share<FieldPriov2, 32>>, VdafError> {
+    fn shard(&self, measurement: &Vec<u32>) -> Result<Vec<Share<Prio2Field, 32>>, VdafError> {
         if measurement.len() != self.input_len {
             return Err(VdafError::Uncategorized("incorrect input length".into()));
         }
-        let mut input: Vec<FieldPriov2> = Vec::with_capacity(measurement.len());
+        let mut input: Vec<Prio2Field> = Vec::with_capacity(measurement.len());
         for int in measurement {
             input.push((*int).into());
         }
 
         let mut mem = v2_client::ClientMemory::new(self.input_len)?;
-        let copy_data = |share_data: &mut [FieldPriov2]| {
+        let copy_data = |share_data: &mut [Prio2Field]| {
             share_data[..].clone_from_slice(&input);
         };
         let mut leader_data = mem.prove_with(self.input_len, copy_data);
@@ -91,11 +91,11 @@ impl Client for Prio2 {
 
 /// State of each [`Aggregator`](crate::vdaf::Aggregator) during the Preparation phase.
 #[derive(Clone, Debug)]
-pub struct Prio2PrepareState(OutputShare<FieldPriov2>);
+pub struct Prio2PrepareState(OutputShare<Prio2Field>);
 
 /// Message emitted by each [`Aggregator`](crate::vdaf::Aggregator) during the Preparation phase.
 #[derive(Clone, Debug)]
-pub struct Prio2PrepareShare(v2_server::VerificationMessage<FieldPriov2>);
+pub struct Prio2PrepareShare(v2_server::VerificationMessage<Prio2Field>);
 
 impl Encode for Prio2PrepareShare {
     fn encode(&self, bytes: &mut Vec<u8>) {
@@ -111,9 +111,9 @@ impl ParameterizedDecode<Prio2PrepareState> for Prio2PrepareShare {
         bytes: &mut Cursor<&[u8]>,
     ) -> Result<Self, CodecError> {
         Ok(Self(v2_server::VerificationMessage {
-            f_r: FieldPriov2::decode(bytes)?,
-            g_r: FieldPriov2::decode(bytes)?,
-            h_r: FieldPriov2::decode(bytes)?,
+            f_r: Prio2Field::decode(bytes)?,
+            g_r: Prio2Field::decode(bytes)?,
+            h_r: Prio2Field::decode(bytes)?,
         }))
     }
 }
@@ -129,7 +129,7 @@ impl Aggregator<32> for Prio2 {
         agg_id: usize,
         _agg_param: &(),
         nonce: &[u8],
-        input_share: &Share<FieldPriov2, 32>,
+        input_share: &Share<Prio2Field, 32>,
     ) -> Result<(Prio2PrepareState, Prio2PrepareShare), VdafError> {
         let is_leader = role_try_from(agg_id)?;
 
@@ -143,7 +143,7 @@ impl Aggregator<32> for Prio2 {
             .next()
             .unwrap();
 
-        let expanded_data: Option<Vec<FieldPriov2>> = match input_share {
+        let expanded_data: Option<Vec<Prio2Field>> = match input_share {
             Share::Leader(_) => None,
             Share::Helper(ref seed) => {
                 let prng = Prng::from_prio2_seed(seed.as_ref());
@@ -175,7 +175,7 @@ impl Aggregator<32> for Prio2 {
         &self,
         inputs: M,
     ) -> Result<(), VdafError> {
-        let verifier_shares: Vec<v2_server::VerificationMessage<FieldPriov2>> =
+        let verifier_shares: Vec<v2_server::VerificationMessage<Prio2Field>> =
             inputs.into_iter().map(|msg| msg.0).collect();
         if verifier_shares.len() != 2 {
             return Err(VdafError::Uncategorized(
@@ -200,12 +200,12 @@ impl Aggregator<32> for Prio2 {
         Ok(PrepareTransition::Finish(state.0))
     }
 
-    fn aggregate<M: IntoIterator<Item = OutputShare<FieldPriov2>>>(
+    fn aggregate<M: IntoIterator<Item = OutputShare<Prio2Field>>>(
         &self,
         _agg_param: &(),
         out_shares: M,
-    ) -> Result<AggregateShare<FieldPriov2>, VdafError> {
-        let mut agg_share = AggregateShare(vec![FieldPriov2::zero(); self.input_len]);
+    ) -> Result<AggregateShare<Prio2Field>, VdafError> {
+        let mut agg_share = AggregateShare(vec![Prio2Field::zero(); self.input_len]);
         for out_share in out_shares.into_iter() {
             agg_share.accumulate(&out_share)?;
         }
@@ -215,12 +215,12 @@ impl Aggregator<32> for Prio2 {
 }
 
 impl Collector for Prio2 {
-    fn unshard<M: IntoIterator<Item = AggregateShare<FieldPriov2>>>(
+    fn unshard<M: IntoIterator<Item = AggregateShare<Prio2Field>>>(
         &self,
         _agg_param: &(),
         agg_shares: M,
     ) -> Result<Vec<u32>, VdafError> {
-        let mut agg = AggregateShare(vec![FieldPriov2::zero(); self.input_len]);
+        let mut agg = AggregateShare(vec![Prio2Field::zero(); self.input_len]);
         for agg_share in agg_shares.into_iter() {
             agg.merge(&agg_share)?;
         }
@@ -229,7 +229,7 @@ impl Collector for Prio2 {
     }
 }
 
-impl<'a> ParameterizedDecode<(&'a Prio2, usize)> for Share<FieldPriov2, 32> {
+impl<'a> ParameterizedDecode<(&'a Prio2, usize)> for Share<Prio2Field, 32> {
     fn decode_with_param(
         (prio2, agg_id): &(&'a Prio2, usize),
         bytes: &mut Cursor<&[u8]>,
@@ -297,9 +297,9 @@ mod tests {
         let pub_key1 = PublicKey::from(&priv_key1);
         let pub_key2 = PublicKey::from(&priv_key2);
 
-        let data: Vec<FieldPriov2> = [0, 0, 1, 1, 0]
+        let data: Vec<Prio2Field> = [0, 0, 1, 1, 0]
             .iter()
-            .map(|x| FieldPriov2::from(*x))
+            .map(|x| Prio2Field::from(*x))
             .collect();
         let (encrypted_input_share1, encrypted_input_share2) =
             encode_simple(&data, pub_key1, pub_key2).unwrap();
@@ -337,7 +337,7 @@ mod tests {
         let mut server1 = Server::new(data.len(), true, priv_key1).unwrap();
         let mut server2 = Server::new(data.len(), false, priv_key2).unwrap();
 
-        let eval_at: FieldPriov2 = random_vector(1).unwrap()[0];
+        let eval_at: Prio2Field = random_vector(1).unwrap()[0];
         let verifier1 = server1
             .generate_verification_message(eval_at, &encrypted_input_share1)
             .unwrap();
