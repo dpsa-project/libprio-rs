@@ -23,6 +23,7 @@ static_assertions = "1.1.0"
 thiserror = "1.0"
 # dpsa
 fixed = "1.15"
+num = "0.4"
 
 # dependencies required if feature "test-vector" is enabled
 rand = { version = "0.8", optional = true }
