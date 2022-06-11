@@ -359,7 +359,7 @@ impl<F: FieldElement> Type for Histogram<F> {
     }
 }
 
-fn valid_call_check<T: Type>(
+pub fn valid_call_check<T: Type>(
     typ: &T,
     input: &[T::Field],
     joint_rand: &[T::Field],
@@ -537,7 +537,7 @@ where
     }
 }
 
-fn truncate_call_check<T: Type>(typ: &T, input: &[T::Field]) -> Result<(), FlpError> {
+pub fn truncate_call_check<T: Type>(typ: &T, input: &[T::Field]) -> Result<(), FlpError> {
     if input.len() != typ.input_len() {
         return Err(FlpError::Truncate(format!(
             "Unexpected input length: got {}; want {}",
