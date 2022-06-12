@@ -98,7 +98,7 @@ impl<B, X, Z> HasBitEncoding<Vec<X>,B> for Z
     {
     type BitEncodingParameter = (usize, Z::BitEncodingParameter);
     fn encode_bits((size,param): &(usize, Z::BitEncodingParameter), xs: &Vec<X>) -> Vec<B> {
-        assert_eq!(size, xs.len());
+        assert_eq!(*size, xs.len());
         xs.iter().flat_map(|x| Z::encode_bits(param, x)).collect()
     }
     fn encode_bits_size((size,param): &(usize, Z::BitEncodingParameter)) -> usize {
@@ -118,3 +118,4 @@ impl<B, X, Z> HasBitEncoding<Vec<X>,B> for Z
         (res, rest)
     }
 }
+
