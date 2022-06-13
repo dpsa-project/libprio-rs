@@ -174,7 +174,7 @@ impl<T: FixedUnsigned + AssociatedField> Type for FixedPointVecSum<T>
     }
 
     fn output_len(&self) -> usize {
-        1
+        self.entries
     }
 
     fn joint_rand_len(&self) -> usize {
@@ -214,7 +214,7 @@ mod tests {
     }
 
     #[test]
-    fn test_fixed_point_sum() {
+    fn test_fixed_point_vector_sum() {
         let entries = 3;
         let sum = S::new(entries).unwrap();
 
@@ -233,15 +233,19 @@ mod tests {
         );
 
         // Test FLP on valid input.
-        // flp_validity_test(
-        //     &sum,
-        //     &sum.encode_measurement(&fixed!(1337.2342: U56F8)).unwrap(),
-        //     &ValidityTestCase {
-        //         expect_valid: true,
-        //         expected_output: Some(vec![TestField::from(342332)]),
-        //     },
-        // )
-        // .unwrap();
+        flp_validity_test(
+            &sum,
+            &sum.encode_measurement(&input_vec).unwrap(),
+            &ValidityTestCase {
+                expect_valid: true,
+                expected_output: Some(vec![TestField::from((27 << 8) + (1 << 7)),
+                                           TestField::from((12 << 8) + (1 << 5)),
+                                           TestField::from((0 << 8)  + (1 << 6))
+
+                ]),
+            },
+        )
+        .unwrap();
     }
 
     fn flp_validity_test<T: Type>(
