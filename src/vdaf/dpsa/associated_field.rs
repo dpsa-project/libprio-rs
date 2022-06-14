@@ -1,14 +1,10 @@
 
 use fixed::*;
 use fixed::types::extra::*;
-use fixed::traits::{Fixed, FixedUnsigned};
 
 use crate::field::{FieldElement, Field96};
-use crate::flp::{FlpError, Gadget, Type};
-use crate::flp::types::{truncate_call_check, valid_call_check};
-use crate::polynomial::poly_range_check;
-use crate::flp::gadgets::PolyEval;
-use std::convert::{TryFrom, TryInto};
+use crate::flp::{FlpError};
+use std::convert::{TryFrom};
 
 /// Objects with this trait have a FieldElement type attached, into which their instances
 /// must be embeddable and re-extractable.

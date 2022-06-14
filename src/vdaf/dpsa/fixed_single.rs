@@ -150,8 +150,6 @@ impl<T: FixedUnsigned + AssociatedField> Type for FixedPointSum<T>{
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;

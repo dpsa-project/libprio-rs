@@ -28,7 +28,7 @@
 //! [draft-irtf-cfrg-vdaf-01]: https://datatracker.ietf.org/doc/draft-irtf-cfrg-vdaf/01/
 
 use crate::codec::{CodecError, Decode, Encode, ParameterizedDecode};
-use crate::field::{Field128, Field64, FieldElement};
+use crate::field::{Field128, Field96, Field64, FieldElement};
 #[cfg(feature = "multithreaded")]
 use crate::flp::gadgets::ParallelSumMultithreaded;
 use crate::flp::gadgets::{BlindPolyEval, ParallelSum, ParallelSumGadget};
@@ -45,6 +45,10 @@ use std::fmt::Debug;
 use std::io::Cursor;
 use std::iter::IntoIterator;
 use std::marker::PhantomData;
+
+use crate::vdaf::dpsa::fixed_single::{FixedPointSum};
+use fixed::*;
+use fixed::types::extra::*;
 
 // Domain-separation tag used to bind the VDAF operations to the document version. This will be
 // reved with each draft with breaking changes.
@@ -120,6 +124,24 @@ impl Prio3Aes128Sum {
         Ok(Prio3 {
             num_aggregators,
             typ: Sum::new(bits as usize)?,
+            phantom: PhantomData,
+        })
+    }
+}
+
+/// The fixed point sum type. Each measurement is 64-bit fixed point decimal with 8 fractional
+/// digits and the aggregate is the sum.
+pub type Prio3Aes128FixedPointSum = Prio3<FixedPointSum<FixedU64<U8>>, PrgAes128, 16>;
+
+impl Prio3Aes128FixedPointSum {
+    /// Construct an instance of this VDAF with the given suite, number of aggregators and required
+    /// bit length. The bit length must not exceed 64.
+    pub fn new(num_aggregators: u8) -> Result<Self, VdafError> {
+        check_num_aggregators(num_aggregators)?;
+
+        Ok(Prio3 {
+            num_aggregators,
+            typ: FixedPointSum::new()?,
             phantom: PhantomData,
         })
     }
@@ -904,6 +926,8 @@ mod tests {
     use assert_matches::assert_matches;
     use rand::prelude::*;
 
+    use fixed_macro::fixed;
+
     #[test]
     fn test_prio3_count() {
         let prio3 = Prio3Aes128Count::new(2).unwrap();
@@ -1031,5 +1055,54 @@ mod tests {
             assert_eq!(got, want);
         }
         Ok(())
+    }
+
+    #[test]
+    fn test_prio3_fp_sum() {
+        let prio3 = Prio3Aes128FixedPointSum::new(16).unwrap();
+
+        let fp_zero = fixed!(0.0: U56F8);
+        let fp_one = fixed!(1.0: U56F8);
+        let fp_f = fixed!(23.42: U56F8);
+        let fp_list = [fp_zero, fp_f - fp_one, fp_zero, fp_f, fp_one];
+        assert_eq!(
+            run_vdaf(&prio3, &(), fp_list).unwrap(),
+            fp_f + fp_f
+        );
+
+        let mut verify_key = [0; 16];
+        thread_rng().fill(&mut verify_key[..]);
+        let nonce = b"This is a good nonce.";
+
+        let mut input_shares = prio3.shard(&fp_one).unwrap();
+        input_shares[0].joint_rand_param.as_mut().unwrap().blind.0[0] ^= 255;
+        let result = run_vdaf_prepare(&prio3, &verify_key, &(), nonce, input_shares);
+        assert_matches!(result, Err(VdafError::Uncategorized(_)));
+
+        let mut input_shares = prio3.shard(&fp_one).unwrap();
+        input_shares[0]
+            .joint_rand_param
+            .as_mut()
+            .unwrap()
+            .seed_hint
+            .0[0] ^= 255;
+        let result = run_vdaf_prepare(&prio3, &verify_key, &(), nonce, input_shares);
+        assert_matches!(result, Err(VdafError::Uncategorized(_)));
+
+        let mut input_shares = prio3.shard(&fp_one).unwrap();
+        assert_matches!(input_shares[0].input_share, Share::Leader(ref mut data) => {
+            data[0] += Field96::one();
+        });
+        let result = run_vdaf_prepare(&prio3, &verify_key, &(), nonce, input_shares);
+        assert_matches!(result, Err(VdafError::Uncategorized(_)));
+
+        let mut input_shares = prio3.shard(&fp_one).unwrap();
+        assert_matches!(input_shares[0].proof_share, Share::Leader(ref mut data) => {
+                data[0] += Field96::one();
+        });
+        let result = run_vdaf_prepare(&prio3, &verify_key, &(), nonce, input_shares);
+        assert_matches!(result, Err(VdafError::Uncategorized(_)));
+
+        test_prepare_state_serialization(&prio3, &fp_one).unwrap();
     }
 }
