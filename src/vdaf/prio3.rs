@@ -28,7 +28,7 @@
 //! [draft-irtf-cfrg-vdaf-01]: https://datatracker.ietf.org/doc/draft-irtf-cfrg-vdaf/01/
 
 use crate::codec::{CodecError, Decode, Encode, ParameterizedDecode};
-use crate::field::{Field128, Field96, Field64, FieldElement};
+use crate::field::{Field128, Field64, FieldElement};
 #[cfg(feature = "multithreaded")]
 use crate::flp::gadgets::ParallelSumMultithreaded;
 use crate::flp::gadgets::{BlindPolyEval, ParallelSum, ParallelSumGadget};
@@ -47,6 +47,7 @@ use std::iter::IntoIterator;
 use std::marker::PhantomData;
 
 use crate::vdaf::dpsa::fixed_single::{FixedPointSum};
+use crate::vdaf::dpsa::fixed_vector::{FixedPointVecSum};
 use fixed::*;
 use fixed::types::extra::*;
 
@@ -142,6 +143,24 @@ impl Prio3Aes128FixedPointSum {
         Ok(Prio3 {
             num_aggregators,
             typ: FixedPointSum::new()?,
+            phantom: PhantomData,
+        })
+    }
+}
+
+/// The fixed point vector sum type. Each measurement is a vector of 64-bit fixed point decimals 
+/// with 8 fractional digits and the aggregate is the sum.
+pub type Prio3Aes128FixedPointVecSum = Prio3<FixedPointVecSum<FixedU64<U8>>, PrgAes128, 16>;
+
+impl Prio3Aes128FixedPointVecSum {
+    /// Construct an instance of this VDAF with the given suite, number of aggregators and required
+    /// bit length. The bit length must not exceed 64.
+    pub fn new(num_aggregators: u8, entries: usize) -> Result<Self, VdafError> {
+        check_num_aggregators(num_aggregators)?;
+
+        Ok(Prio3 {
+            num_aggregators,
+            typ: FixedPointVecSum::new(entries)?,
             phantom: PhantomData,
         })
     }
@@ -927,6 +946,7 @@ mod tests {
     use rand::prelude::*;
 
     use fixed_macro::fixed;
+    use crate::field::Field96;
 
     #[test]
     fn test_prio3_count() {
@@ -1104,5 +1124,56 @@ mod tests {
         assert_matches!(result, Err(VdafError::Uncategorized(_)));
 
         test_prepare_state_serialization(&prio3, &fp_one).unwrap();
+    }
+
+    #[test]
+    fn test_prio3_fpvec_sum() {
+        let prio3 = Prio3Aes128FixedPointVecSum::new(16, 3).unwrap();
+
+        let fp_zero = fixed!(0.0: U56F8);
+        let fp_one = fixed!(1.0: U56F8);
+        let fp_f = fixed!(23.42: U56F8);
+        let fp_vec1 = vec!(fp_zero, fp_f - fp_one, fp_zero);
+        let fp_vec2 = vec!(fp_f, fp_one, fp_f);
+        let fp_list = [fp_vec1, fp_vec2];
+        assert_eq!(
+            run_vdaf(&prio3, &(), fp_list).unwrap(),
+            vec!(fp_f, fp_f, fp_f)
+        );
+
+        let mut verify_key = [0; 16];
+        thread_rng().fill(&mut verify_key[..]);
+        let nonce = b"This is a good nonce.";
+
+        let mut input_shares = prio3.shard(&vec!(fp_zero, fp_f - fp_one, fp_zero)).unwrap();
+        input_shares[0].joint_rand_param.as_mut().unwrap().blind.0[0] ^= 255;
+        let result = run_vdaf_prepare(&prio3, &verify_key, &(), nonce, input_shares);
+        assert_matches!(result, Err(VdafError::Uncategorized(_)));
+
+        let mut input_shares = prio3.shard(&vec!(fp_zero, fp_f - fp_one, fp_zero)).unwrap();
+        input_shares[0]
+            .joint_rand_param
+            .as_mut()
+            .unwrap()
+            .seed_hint
+            .0[0] ^= 255;
+        let result = run_vdaf_prepare(&prio3, &verify_key, &(), nonce, input_shares);
+        assert_matches!(result, Err(VdafError::Uncategorized(_)));
+
+        let mut input_shares = prio3.shard(&vec!(fp_zero, fp_f - fp_one, fp_zero)).unwrap();
+        assert_matches!(input_shares[0].input_share, Share::Leader(ref mut data) => {
+            data[0] += Field96::one();
+        });
+        let result = run_vdaf_prepare(&prio3, &verify_key, &(), nonce, input_shares);
+        assert_matches!(result, Err(VdafError::Uncategorized(_)));
+
+        let mut input_shares = prio3.shard(&vec!(fp_zero, fp_f - fp_one, fp_zero)).unwrap();
+        assert_matches!(input_shares[0].proof_share, Share::Leader(ref mut data) => {
+                data[0] += Field96::one();
+        });
+        let result = run_vdaf_prepare(&prio3, &verify_key, &(), nonce, input_shares);
+        assert_matches!(result, Err(VdafError::Uncategorized(_)));
+
+        test_prepare_state_serialization(&prio3, &vec!(fp_zero, fp_f - fp_one, fp_zero)).unwrap();
     }
 }

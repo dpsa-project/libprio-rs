@@ -1,10 +1,8 @@
 
-use fixed::*;
-use fixed::types::extra::*;
 use fixed::traits::{Fixed, FixedUnsigned};
 
 use crate::vdaf::dpsa::associated_field::*;
-use crate::field::{FieldElement, Field96};
+use crate::field::FieldElement;
 use crate::flp::{FlpError, Gadget, Type};
 use crate::flp::types::{truncate_call_check, valid_call_check};
 use crate::polynomial::poly_range_check;
@@ -154,7 +152,10 @@ impl<T: FixedUnsigned + AssociatedField> Type for FixedPointSum<T>{
 mod tests {
     use super::*;
     use crate::field::{random_vector, split_vector, Field96 as TestField};
+    use fixed::*;
+    use fixed::types::extra::*;
     use fixed_macro::fixed;
+    use crate::field::Field96;
 
     // Number of shares to split input and proofs into in `flp_test`.
     const NUM_SHARES: usize = 3;
