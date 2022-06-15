@@ -52,9 +52,34 @@ impl<T: FixedUnsigned + AssociatedField> FixedPointL2BoundedVecSum<T>
         let one = <<T as AssociatedField>::Field as FieldElement>::Integer::from(fone);
         let max_summand = (one << bits_int) - one;
 
-        // this is `entries * 2^(2*bits + 1)`
-        let bits_for_norm = entries * (1 << (2 * bits + 1));
+        ///////////////////////////
+        // make sure that the maximal value that the norm can take fits into our field
+        // it is: `entries * 2^(2*bits + 1)`
+        let usize_max_norm_value : usize = entries * (2 ^ (2 * bits + 1));
+        let max_norm_value = <<T as AssociatedField>::Field as FieldElement>::Integer::try_from(usize_max_norm_value).map_err(|err| {
+            FlpError::Encode(format!(
+                "bit length ({}) cannot be represented as a FieldElement::Integer: {:?}",
+                bits, err,
+            ))
+        })?;
+        //
+        if max_norm_value > <<T as AssociatedField>::Field as FieldElement>::modulus()
+        {
+            return Err(FlpError::Encode(format!(
+                "The maximal norm value ({}) exceeds field modulus",
+                usize_max_norm_value,
+            )));
+        }
 
+        ///////////////////////////
+        // The norm of our vector should be less than `2^(2*(bits - 1))`
+        // This means that a valid norm is given exactly by a binary
+        // number with the following number of bits.
+        let bits_for_norm = 2 * (bits - 1);
+
+
+        ///////////////////////////
+        // return the constructed self
         Ok(Self {
             bits_per_entry: bits,
             entries,
@@ -121,10 +146,22 @@ impl<T: FixedUnsigned + AssociatedField> Type for FixedPointL2BoundedVecSum<T>
 
     fn gadget(&self) -> Vec<Box<dyn Gadget<Self::Field>>>
     {
-        vec![Box::new(PolyEval::new(
+        // We need two gadgets:
+        //
+        // (0): check that field element is 0 or 1
+        let gadget0 = PolyEval::new(
             self.range_checker.clone(),
             self.bits_per_entry * self.entries,
-        ))]
+        );
+        //
+        // (1): compute square of field element
+        // TODO!
+        let gadget1 = PolyEval::new(
+            self.range_checker.clone(),
+            0,
+        );
+
+        vec![Box::new(gadget0), Box::new(gadget1)]
     }
 
    fn valid(
@@ -137,13 +174,27 @@ impl<T: FixedUnsigned + AssociatedField> Type for FixedPointL2BoundedVecSum<T>
     {
         valid_call_check(self, input, joint_rand)?;
 
-        // Check that each element of `data` is a 0 or 1.
+
+        //--------------------------------------------
+        // range checking
+        //
+        // (I) for encoded input vector entries
+        //    We need to make sure that all the input vector entries
+        //    contain only 0/1 field elements.
+        //
+        //    Since all input vector entry (field-)bits are contiguous,
+        //    we do the check directly for all bits [0..entries*bits_per_entry].
+        //
+        // Check that each element is a 0 or 1.
         let mut range_check = Self::Field::zero();
         let mut r = joint_rand[0];
-        for chunk in input.chunks(1) {
+        for chunk in input[0..self.entries*self.bits_per_entry].chunks(1) {
             range_check += r * g[0].call(chunk)?;
             r *= joint_rand[0];
         }
+        //
+        // (II) for the norm
+        //
 
         Ok(range_check)
     }
