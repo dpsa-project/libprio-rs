@@ -17,6 +17,7 @@ pub struct FixedPointL2BoundedVecSum<T: FixedUnsigned + AssociatedField>
 {
     bits_per_entry: usize,
     entries: usize,
+    bits_for_norm: usize,
     one: <<T as AssociatedField>::Field as FieldElement>::Integer,
     max_summand: <<T as AssociatedField>::Field as FieldElement>::Integer,
     range_checker: Vec<<T as AssociatedField>::Field>,
