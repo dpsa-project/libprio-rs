@@ -52,9 +52,13 @@ impl<T: FixedUnsigned + AssociatedField> FixedPointL2BoundedVecSum<T>
         let one = <<T as AssociatedField>::Field as FieldElement>::Integer::from(fone);
         let max_summand = (one << bits_int) - one;
 
+        // this is `entries * 2^(2*bits + 1)`
+        let bits_for_norm = entries * (1 << (2 * bits + 1));
+
         Ok(Self {
             bits_per_entry: bits,
             entries,
+            bits_for_norm,
             one,
             max_summand,
             range_checker: poly_range_check(0, 2),
