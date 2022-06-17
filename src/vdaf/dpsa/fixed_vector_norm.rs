@@ -59,7 +59,8 @@ impl<T: FixedUnsigned, F: FieldElement> FixedPointL2BoundedVecSum<T, F>
         ///////////////////////////
         // make sure that the maximal value that the norm can take fits into our field
         // it is: `entries * 2^(2*bits + 1)`
-        let usize_max_norm_value : usize = entries * (2 ^ (2 * bits + 1));
+        println!("bits is {bits}");
+        let usize_max_norm_value : usize = entries * (1 << (2 * bits + 1));
         let max_norm_value = <F as FieldElement>::Integer::try_from(usize_max_norm_value).map_err(|err| {
             FlpError::Encode(format!(
                 "bit length ({}) cannot be represented as a FieldElement::Integer: {:?}",
@@ -74,6 +75,7 @@ impl<T: FixedUnsigned, F: FieldElement> FixedPointL2BoundedVecSum<T, F>
                 usize_max_norm_value,
             )));
         }
+        println!("The max norm_value is: {:?}\nThe field modulus is: {:?}", max_norm_value, <F as FieldElement>::modulus());
 
         ///////////////////////////
         // The norm of our vector should be less than `2^(2*(bits - 1))`
@@ -134,8 +136,8 @@ fn compute_norm_of_entries<F,Fs,SquareFun,E>(entries: Fs, bits_per_entry: usize,
     let mut computed_norm = F::zero();
     //
     // constants
-    let constant_part = F::Integer::try_from(2^(2*bits_per_entry - 2)).unwrap();
-    let linear_part   = F::Integer::try_from(2^(bits_per_entry)).unwrap();
+    let constant_part = F::Integer::try_from(1 << (2*bits_per_entry - 2)).unwrap();
+    let linear_part   = F::Integer::try_from(1 << (bits_per_entry)).unwrap();
     //
     for entry in entries.into_iter()
     {
@@ -283,6 +285,7 @@ impl<T: FixedUnsigned, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F>
         // norm computation
         //
         // an iterator over the decoded entries
+        println!("before entry decoding");
         let decoded_entries =
             input[0..self.entries*self.bits_per_entry]
             .chunks(self.bits_per_entry)
@@ -292,7 +295,10 @@ impl<T: FixedUnsigned, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F>
         let computed_norm = compute_norm_of_entries(decoded_entries, self.bits_per_entry, &mut |x| g[1].call(std::slice::from_ref(&x)))?;
         //
         // the claimed norm
-        let claimed_norm = decode_field_bits(&input[self.entries*self.bits_per_entry..]);
+        let claimed_norm_enc = &input[self.entries*self.bits_per_entry..];
+        println!("before norm decoding, it is: {:?}", claimed_norm_enc);
+        println!("parameters are: \nself.entries: {}\nself.bits_per_entry: {}\nself.bits_for_norm: {}\nnorm_length: {}", self.entries, self.bits_per_entry, self.bits_for_norm, claimed_norm_enc.len());
+        let claimed_norm = decode_field_bits(claimed_norm_enc);
         //
         // add the check that computed norm == claimed norm
         validity_check += r * (computed_norm - claimed_norm);
