@@ -99,9 +99,12 @@ impl<T: FixedUnsigned, F: FieldElement> FixedPointL2BoundedVecSum<T, F>
 
 
 
-//--------------------------------------------
-// helper function for computing the value of binary
-// encoded bit vectors
+/////////////////////////////////////////////////////////////////////////////////
+// helper functions
+
+
+//
+// computing the value of binary encoded bit vectors
 fn decode_field_bits<F>(bits: &[F]) -> F where
     F : FieldElement
 {
@@ -114,6 +117,36 @@ fn decode_field_bits<F>(bits: &[F]) -> F where
     }
     decoded
 }
+
+
+//
+// computing the norm of a vector of field entries
+fn compute_norm_of_entries<F,Fs,SquareFun,E>(entries: Fs, bits_per_entry: usize, sq: &mut SquareFun) -> Result<F,E> where
+    F : FieldElement,
+    Fs : IntoIterator<Item = F>,
+    SquareFun : FnMut(F) -> Result<F,E>
+{
+    //--------------------------------------------
+    // norm computation
+    //
+    // We need to ensure that norm(entries) = claimed_norm
+    // let entries = &input[0..self.entries*self.bits_per_entry];
+    let mut computed_norm = F::zero();
+    //
+    // constants
+    let constant_part = F::Integer::try_from(2^(2*bits_per_entry - 2)).unwrap();
+    let linear_part   = F::Integer::try_from(2^(bits_per_entry)).unwrap();
+    //
+    for entry in entries.into_iter()
+    {
+        let summand = sq(entry)?
+            + F::from(constant_part)
+            - F::from(linear_part)*(entry);
+        computed_norm += summand;
+    }
+    Ok(computed_norm)
+}
+
 
 
 
@@ -131,8 +164,8 @@ impl<T: FixedUnsigned, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F>
     fn encode_measurement(&self, fp_summands: &Vec<T>) -> Result<Vec<Self::Field>, FlpError>
     {
 
-        let mut encoded: Vec<Self::Field> = Vec::with_capacity(self.bits_per_entry * self.entries);
-
+        // first convert all my entries to the field-integers
+        let mut integer_entries : Vec<<Self::Field as FieldElement>::Integer>  = Vec::with_capacity(self.entries);
         for fp_summand in fp_summands
         {
             let summand = &F::Integer::try_from(<T as Fixed>::to_bits(*fp_summand)).unwrap();
@@ -143,13 +176,36 @@ impl<T: FixedUnsigned, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F>
                     "value of summand exceeds bit length".to_string(),
                 ));
             }
+            integer_entries.push(*summand);
+        }
 
+
+        // then encode them bitwise
+        let mut encoded: Vec<Self::Field> = Vec::with_capacity(self.bits_per_entry * self.entries + self.bits_for_norm);
+
+        for entry in integer_entries.clone()
+        {
+
+            // push all bits of all entries
             for l in 0..self.bits_per_entry
             {
                 let l = <Self::Field as FieldElement>::Integer::try_from(l).unwrap();
-                let w = Self::Field::from((*summand >> l) & self.one);
+                let w = Self::Field::from((entry >> l) & self.one);
                 encoded.push(w);
             }
+        }
+
+        // compute the norm
+        let field_entries = integer_entries.iter().map(|&x| Self::Field::from(x));
+        let norm = compute_norm_of_entries::<_,_,_,FlpError>(field_entries, self.bits_per_entry, &mut |x| Ok(x * x))?;
+        let norm_int = <Self::Field as FieldElement>::Integer::from(norm);
+
+        // push the bits of the norm
+        for l in 0..self.bits_for_norm
+        {
+            let l = <Self::Field as FieldElement>::Integer::try_from(l).unwrap();
+            let w = Self::Field::from((norm_int >> l) & self.one);
+            encoded.push(w);
         }
 
         Ok(encoded)
@@ -226,22 +282,14 @@ impl<T: FixedUnsigned, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F>
         //--------------------------------------------
         // norm computation
         //
-        // We need to ensure that norm(entries) = claimed_norm
-        let entries = &input[0..self.entries*self.bits_per_entry];
-        let mut computed_norm = Self::Field::zero();
+        // an iterator over the decoded entries
+        let decoded_entries =
+            input[0..self.entries*self.bits_per_entry]
+            .chunks(self.bits_per_entry)
+            .map(decode_field_bits);
         //
-        // constants
-        let constant_part = <Self::Field as FieldElement>::Integer::try_from(2^(2*self.bits_per_entry - 2)).unwrap();
-        let linear_part   = <Self::Field as FieldElement>::Integer::try_from(2^(self.bits_per_entry)).unwrap();
-        //
-        for entry in entries.chunks(self.bits_per_entry)
-        {
-            let decoded_entry = decode_field_bits(entry);
-            let summand = g[1].call(std::slice::from_ref(&decoded_entry))?
-                        + Self::Field::from(constant_part)
-                        - Self::Field::from(linear_part)*decoded_entry;
-            computed_norm += summand;
-        }
+        // the computed norm
+        let computed_norm = compute_norm_of_entries(decoded_entries, self.bits_per_entry, &mut |x| g[1].call(std::slice::from_ref(&x)))?;
         //
         // the claimed norm
         let claimed_norm = decode_field_bits(&input[self.entries*self.bits_per_entry..]);
