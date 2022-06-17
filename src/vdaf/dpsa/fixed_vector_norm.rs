@@ -1,68 +1,73 @@
 
-use fixed::*;
-use fixed::types::extra::*;
+//use fixed::*;
+//use fixed::types::extra::*;
 use fixed::traits::{Fixed, FixedUnsigned};
 
-use crate::vdaf::dpsa::associated_field::*;
-use crate::field::{FieldElement, Field96};
+//use crate::vdaf::dpsa::associated_field::*;
+use crate::field::{FieldElement};
 use crate::flp::{FlpError, Gadget, Type};
 use crate::flp::types::{truncate_call_check, valid_call_check};
 use crate::polynomial::poly_range_check;
 use crate::flp::gadgets::PolyEval;
-use std::convert::{TryFrom, TryInto};
 
+use std::{
+    convert::{TryFrom, TryInto},
+    marker::PhantomData,
+    fmt::{Debug},
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FixedPointL2BoundedVecSum<T: FixedUnsigned + AssociatedField>
+pub struct FixedPointL2BoundedVecSum<T: FixedUnsigned, F: FieldElement>
 {
     bits_per_entry: usize,
     entries: usize,
     bits_for_norm: usize,
-    one: <<T as AssociatedField>::Field as FieldElement>::Integer,
-    max_summand: <<T as AssociatedField>::Field as FieldElement>::Integer,
-    range_01_checker: Vec<<T as AssociatedField>::Field>,
-    square_computer: Vec<<T as AssociatedField>::Field>,
+    one: <F as FieldElement>::Integer,
+    max_summand: <F as FieldElement>::Integer,
+    range_01_checker: Vec<F>,
+    square_computer: Vec<F>,
+    phantom: PhantomData<T>,
 }
 
 
 
-impl<T: FixedUnsigned + AssociatedField> FixedPointL2BoundedVecSum<T>
+impl<T: FixedUnsigned, F: FieldElement> FixedPointL2BoundedVecSum<T, F>
 {
     pub fn new(entries: usize) -> Result<Self, FlpError>
     {
         let bits = (<T as Fixed>::INT_NBITS + <T as Fixed>::FRAC_NBITS).try_into().unwrap();
 
-        let bits_int = <<T as AssociatedField>::Field as FieldElement>::Integer::try_from(bits).map_err(|err| {
+        let bits_int = <F as FieldElement>::Integer::try_from(bits).map_err(|err| {
             FlpError::Encode(format!(
                 "bit length ({}) cannot be represented as a field element: {:?}",
                 bits, err,
             ))
         })?;
 
-        let fzero = <<T as AssociatedField>::Field as FieldElement>::Integer::from(<<T as AssociatedField>::Field as FieldElement>::zero());
-        if <<T as AssociatedField>::Field as FieldElement>::modulus() >> bits_int == fzero {
+        let fzero = <F as FieldElement>::Integer::from(<F as FieldElement>::zero());
+        if <F as FieldElement>::modulus() >> bits_int == fzero {
             return Err(FlpError::Encode(format!(
                 "bit length ({}) exceeds field modulus",
                 bits,
             )));
         }
 
-        let fone = <<T as AssociatedField>::Field as FieldElement>::one();
-        let one = <<T as AssociatedField>::Field as FieldElement>::Integer::from(fone);
+        let fone = <F as FieldElement>::one();
+        let one = <F as FieldElement>::Integer::from(fone);
         let max_summand = (one << bits_int) - one;
 
         ///////////////////////////
         // make sure that the maximal value that the norm can take fits into our field
         // it is: `entries * 2^(2*bits + 1)`
         let usize_max_norm_value : usize = entries * (2 ^ (2 * bits + 1));
-        let max_norm_value = <<T as AssociatedField>::Field as FieldElement>::Integer::try_from(usize_max_norm_value).map_err(|err| {
+        let max_norm_value = <F as FieldElement>::Integer::try_from(usize_max_norm_value).map_err(|err| {
             FlpError::Encode(format!(
                 "bit length ({}) cannot be represented as a FieldElement::Integer: {:?}",
                 bits, err,
             ))
         })?;
         //
-        if max_norm_value > <<T as AssociatedField>::Field as FieldElement>::modulus()
+        if max_norm_value > <F as FieldElement>::modulus()
         {
             return Err(FlpError::Encode(format!(
                 "The maximal norm value ({}) exceeds field modulus",
@@ -86,7 +91,8 @@ impl<T: FixedUnsigned + AssociatedField> FixedPointL2BoundedVecSum<T>
             one,
             max_summand,
             range_01_checker: poly_range_check(0, 2),
-            square_computer: vec![<T as AssociatedField>::Field::zero(), <T as AssociatedField>::Field::zero(), <T as AssociatedField>::Field::one()],
+            square_computer: vec![F::zero(), F::zero(), F::one()],
+            phantom: PhantomData
         })
     }
 }
@@ -111,11 +117,16 @@ fn decode_field_bits<F>(bits: &[F]) -> F where
 
 
 
-impl<T: FixedUnsigned + AssociatedField> Type for FixedPointL2BoundedVecSum<T>
+impl<T: FixedUnsigned, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F> where
+    F::Integer: TryFrom<<T as Fixed>::Bits>,
+    F::Integer: TryFrom<usize>,
+    T::Bits: TryFrom<F::Integer>,
+    <T::Bits as TryFrom<F::Integer>>::Error: Debug,
+    <F::Integer as TryFrom<T::Bits>>::Error: Debug,
 {
     type Measurement = Vec<T>;
     type AggregateResult = Vec<T>;
-    type Field = <T as AssociatedField>::Field;
+    type Field = F;
 
     fn encode_measurement(&self, fp_summands: &Vec<T>) -> Result<Vec<Self::Field>, FlpError>
     {
@@ -124,7 +135,7 @@ impl<T: FixedUnsigned + AssociatedField> Type for FixedPointL2BoundedVecSum<T>
 
         for fp_summand in fp_summands
         {
-            let summand = &(<T as AssociatedField>::embed(fp_summand));
+            let summand = &F::Integer::try_from(<T as Fixed>::to_bits(*fp_summand)).unwrap();
 
             if *summand > self.max_summand
             {
@@ -141,7 +152,6 @@ impl<T: FixedUnsigned + AssociatedField> Type for FixedPointL2BoundedVecSum<T>
             }
         }
 
-
         Ok(encoded)
     }
 
@@ -154,7 +164,7 @@ impl<T: FixedUnsigned + AssociatedField> Type for FixedPointL2BoundedVecSum<T>
         let mut res = vec![];
         for d in data
         {
-            let val = <T as AssociatedField>::extract(<Self::Field as FieldElement>::Integer::from(*d))?;
+            let val = T::from_bits(T::Bits::try_from(<Self::Field as FieldElement>::Integer::from(*d)).unwrap());
             res.push(val);
         }
         Ok(res)
