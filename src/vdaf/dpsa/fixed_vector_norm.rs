@@ -20,7 +20,8 @@ pub struct FixedPointL2BoundedVecSum<T: FixedUnsigned + AssociatedField>
     bits_for_norm: usize,
     one: <<T as AssociatedField>::Field as FieldElement>::Integer,
     max_summand: <<T as AssociatedField>::Field as FieldElement>::Integer,
-    range_checker: Vec<<T as AssociatedField>::Field>,
+    range_01_checker: Vec<<T as AssociatedField>::Field>,
+    square_computer: Vec<<T as AssociatedField>::Field>,
 }
 
 
@@ -29,8 +30,6 @@ impl<T: FixedUnsigned + AssociatedField> FixedPointL2BoundedVecSum<T>
 {
     pub fn new(entries: usize) -> Result<Self, FlpError>
     {
-
-        // TODO: change this!
         let bits = (<T as Fixed>::INT_NBITS + <T as Fixed>::FRAC_NBITS).try_into().unwrap();
 
         let bits_int = <<T as AssociatedField>::Field as FieldElement>::Integer::try_from(bits).map_err(|err| {
@@ -86,12 +85,29 @@ impl<T: FixedUnsigned + AssociatedField> FixedPointL2BoundedVecSum<T>
             bits_for_norm,
             one,
             max_summand,
-            range_checker: poly_range_check(0, 2),
+            range_01_checker: poly_range_check(0, 2),
+            square_computer: vec![<T as AssociatedField>::Field::zero(), <T as AssociatedField>::Field::zero(), <T as AssociatedField>::Field::one()],
         })
     }
 }
 
 
+
+//--------------------------------------------
+// helper function for computing the value of binary
+// encoded bit vectors
+fn decode_field_bits<F>(bits: &[F]) -> F where
+    F : FieldElement
+{
+
+    let mut decoded = F::zero();
+    for (l, bit) in bits.iter().enumerate()
+    {
+        let w = F::from( F::Integer::try_from(1 << l).unwrap() );
+        decoded += w * *bit;
+    }
+    decoded
+}
 
 
 
@@ -150,15 +166,14 @@ impl<T: FixedUnsigned + AssociatedField> Type for FixedPointL2BoundedVecSum<T>
         //
         // (0): check that field element is 0 or 1
         let gadget0 = PolyEval::new(
-            self.range_checker.clone(),
-            self.bits_per_entry * self.entries,
+            self.range_01_checker.clone(),
+            self.bits_per_entry * self.entries + self.bits_for_norm,
         );
         //
         // (1): compute square of field element
-        // TODO!
         let gadget1 = PolyEval::new(
-            self.range_checker.clone(),
-            0,
+            self.square_computer.clone(),
+            self.entries,
         );
 
         vec![Box::new(gadget0), Box::new(gadget1)]
@@ -182,21 +197,51 @@ impl<T: FixedUnsigned + AssociatedField> Type for FixedPointL2BoundedVecSum<T>
         //    We need to make sure that all the input vector entries
         //    contain only 0/1 field elements.
         //
-        //    Since all input vector entry (field-)bits are contiguous,
-        //    we do the check directly for all bits [0..entries*bits_per_entry].
+        // (II) for encoded norm
+        //    The norm should also be encoded by 0/1 field elements.
+        //    Every such encoded number represents a valid norm.
         //
-        // Check that each element is a 0 or 1.
-        let mut range_check = Self::Field::zero();
+        // Since all input vector entry (field-)bits, as well as the norm bits, are contiguous,
+        // we do the check directly for all bits [0..entries*bits_per_entry + bits_for_norm].
+        //
+        // Check that each element is a 0 or 1:
+        let mut validity_check = Self::Field::zero();
         let mut r = joint_rand[0];
-        for chunk in input[0..self.entries*self.bits_per_entry].chunks(1) {
-            range_check += r * g[0].call(chunk)?;
+        for chunk in input.chunks(1) {
+            validity_check += r * g[0].call(chunk)?;
             r *= joint_rand[0];
         }
-        //
-        // (II) for the norm
-        //
 
-        Ok(range_check)
+
+        //--------------------------------------------
+        // norm computation
+        //
+        // We need to ensure that norm(entries) = claimed_norm
+        let entries = &input[0..self.entries*self.bits_per_entry];
+        let mut computed_norm = Self::Field::zero();
+        //
+        // constants
+        let constant_part = <Self::Field as FieldElement>::Integer::try_from(2^(2*self.bits_per_entry - 2)).unwrap();
+        let linear_part   = <Self::Field as FieldElement>::Integer::try_from(2^(self.bits_per_entry)).unwrap();
+        //
+        for entry in entries.chunks(self.bits_per_entry)
+        {
+            let decoded_entry = decode_field_bits(entry);
+            let summand = g[1].call(std::slice::from_ref(&decoded_entry))?
+                        + Self::Field::from(constant_part)
+                        - Self::Field::from(linear_part)*decoded_entry;
+            computed_norm += summand;
+        }
+        //
+        // the claimed norm
+        let claimed_norm = decode_field_bits(&input[self.entries*self.bits_per_entry..]);
+        //
+        // add the check that computed norm == claimed norm
+        validity_check += r * (computed_norm - claimed_norm);
+
+
+        // Return the result
+        Ok(validity_check)
     }
 
     fn truncate(&self, input: Vec<Self::Field>) -> Result<Vec<Self::Field>, FlpError>

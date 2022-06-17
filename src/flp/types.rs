@@ -142,6 +142,7 @@ impl<F: FieldElement> Sum<F> {
     }
 }
 
+
 impl<F: FieldElement> Type for Sum<F> {
     type Measurement = F::Integer;
     type AggregateResult = F::Integer;
