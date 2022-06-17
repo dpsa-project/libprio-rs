@@ -297,7 +297,7 @@ impl<T: FixedUnsigned, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F>
     }
 
     fn prove_rand_len(&self) -> usize {
-        1
+        2
     }
 
     fn query_rand_len(&self) -> usize {
