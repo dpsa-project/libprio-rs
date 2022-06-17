@@ -325,7 +325,7 @@ impl<T: FixedUnsigned, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F>
     }
 
     fn input_len(&self) -> usize {
-        self.bits_per_entry * self.entries
+        self.bits_per_entry * self.entries + self.bits_for_norm
     }
 
     fn proof_len(&self) -> usize {
