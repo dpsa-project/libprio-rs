@@ -22,6 +22,7 @@ pub struct FixedPointL2BoundedVecSum<T: Fixed, F: FieldElement>
     bits_per_entry: usize,
     entries: usize,
     bits_for_norm: usize,
+    num_of_clients: u32,
     one: <F as FieldElement>::Integer,
     max_summand: <F as FieldElement>::Integer,
     range_01_checker: Vec<F>,
@@ -33,7 +34,7 @@ pub struct FixedPointL2BoundedVecSum<T: Fixed, F: FieldElement>
 
 impl<T: Fixed, F: FieldElement> FixedPointL2BoundedVecSum<T, F>
 {
-    pub fn new(entries: usize) -> Result<Self, FlpError>
+    pub fn new(entries: usize, num_of_clients: u32) -> Result<Self, FlpError>
     {
         if <T as Fixed>::INT_NBITS != 1 {
             return Err(FlpError::Encode(format!(
@@ -96,6 +97,7 @@ impl<T: Fixed, F: FieldElement> FixedPointL2BoundedVecSum<T, F>
             bits_per_entry: bits,
             entries,
             bits_for_norm,
+            num_of_clients,
             one,
             max_summand,
             range_01_checker: poly_range_check(0, 2),
@@ -244,8 +246,10 @@ impl<T: Fixed, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F> where
             let i : u64 = <Self::Field as FieldElement>::Integer::from(*d).try_into().unwrap();
             // let val = T::from_bits(T::Bits::try_from(<Self::Field as FieldElement>::Integer::from(*d)).unwrap());
             let f = i as f64;
+            let decoded = f * f64::powi(2.0, -(self.bits_per_entry as i32) + 1) - (self.num_of_clients as f64);
 
-            res.push(f * f64::powi(2.0, -(self.bits_per_entry as i32) + 1) - 1.0);
+            println!("decoding: {i} => {decoded}");
+            res.push(decoded);
         }
         Ok(res)
     }

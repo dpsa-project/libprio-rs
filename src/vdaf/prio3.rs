@@ -176,12 +176,12 @@ pub type Prio3Aes128FixedPointL2BoundedVecSum = Prio3<FixedPointL2BoundedVecSum<
 impl Prio3Aes128FixedPointL2BoundedVecSum {
     /// Construct an instance of this VDAF with the given suite, number of aggregators and required
     /// bit length. The bit length must not exceed 64.
-    pub fn new(num_aggregators: u8, entries: usize) -> Result<Self, VdafError> {
+    pub fn new(num_aggregators: u8, entries: usize, num_clients: u32) -> Result<Self, VdafError> {
         check_num_aggregators(num_aggregators)?;
 
         Ok(Prio3 {
             num_aggregators,
-            typ: FixedPointL2BoundedVecSum::new(entries)?,
+            typ: FixedPointL2BoundedVecSum::new(entries, num_clients)?,
             phantom: PhantomData,
         })
     }
@@ -1200,7 +1200,7 @@ mod tests {
 
     #[test]
     fn test_prio3_bunded_fpvec_sum() {
-        let prio3 = Prio3Aes128FixedPointL2BoundedVecSum::new(16, 3).unwrap();
+        let prio3 = Prio3Aes128FixedPointL2BoundedVecSum::new(16, 3, 2).unwrap();
         println!("New sucessfull! ========================");
 
         // let fp_zero = fixed!(0.0: I1F15);
@@ -1222,6 +1222,7 @@ mod tests {
         let fp_vec2 = vec!(fp_4_inv, fp_8_inv, fp_16_inv);
 
         let fp_list = [fp_vec1, fp_vec2];
+        // let fp_list = [fp_vec1.clone(), fp_vec2, fp_vec1];
         assert_eq!(
             run_vdaf(&prio3, &(), fp_list).unwrap(),
             vec!(0.5, 0.25, 0.125)
