@@ -333,14 +333,18 @@ impl<T: Fixed, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F> where
         //
         // add the check that computed norm == claimed norm
         validity_check += r * (computed_norm - claimed_norm);
+        println!("////////////////////////////////////////");
+        println!("Computed norm: {computed_norm:?}");
+        println!("Claimed  norm: {claimed_norm:?}");
+        println!("\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\");
 
 
 
         println!("Valid ended! ====================");
 
         // Return the result
-        // Ok(validity_check)
-        Ok(Self::Field::zero())
+        Ok(validity_check)
+        // Ok(Self::Field::zero())
     }
 
     fn truncate(&self, input: Vec<Self::Field>) -> Result<Vec<Self::Field>, FlpError>
