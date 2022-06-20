@@ -1,7 +1,7 @@
 
 //use fixed::*;
 //use fixed::types::extra::*;
-use fixed::traits::{Fixed, FixedUnsigned};
+use fixed::traits::{Fixed};
 
 //use crate::vdaf::dpsa::associated_field::*;
 use crate::field::{FieldElement};
@@ -17,7 +17,7 @@ use std::{
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FixedPointL2BoundedVecSum<T: FixedUnsigned, F: FieldElement>
+pub struct FixedPointL2BoundedVecSum<T: Fixed, F: FieldElement>
 {
     bits_per_entry: usize,
     entries: usize,
@@ -31,10 +31,16 @@ pub struct FixedPointL2BoundedVecSum<T: FixedUnsigned, F: FieldElement>
 
 
 
-impl<T: FixedUnsigned, F: FieldElement> FixedPointL2BoundedVecSum<T, F>
+impl<T: Fixed, F: FieldElement> FixedPointL2BoundedVecSum<T, F>
 {
     pub fn new(entries: usize) -> Result<Self, FlpError>
     {
+        if <T as Fixed>::INT_NBITS != 1 {
+            return Err(FlpError::Encode(format!(
+                "Expected fixed point type with one integer bit, but got {}.",
+                <T as Fixed>::INT_NBITS,
+            )));
+        }
         let bits = (<T as Fixed>::INT_NBITS + <T as Fixed>::FRAC_NBITS).try_into().unwrap();
 
         let bits_int = <F as FieldElement>::Integer::try_from(bits).map_err(|err| {
@@ -152,13 +158,20 @@ fn compute_norm_of_entries<F,Fs,SquareFun,E>(entries: Fs, bits_per_entry: usize,
 
 
 
-impl<T: FixedUnsigned, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F> where
+impl<T: Fixed, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F> where
     F::Integer: TryFrom<<T as Fixed>::Bits>,
     F::Integer: TryFrom<usize>,
+    F::Integer: TryFrom<u128>,
     T::Bits: TryFrom<F::Integer>,
+    T::Bits: TryFrom<u128>,
+    u128: TryFrom<<T as Fixed>::Bits>,
+    u128: TryFrom<F::Integer>,
     <T::Bits as TryFrom<F::Integer>>::Error: Debug,
     <F::Integer as TryFrom<T::Bits>>::Error: Debug,
-{
+    <F::Integer as TryFrom<u128>>::Error: Debug,
+    <u128 as TryFrom<F::Integer>>::Error: Debug,
+    <u128 as TryFrom<T::Bits>>::Error: Debug,
+    {
     type Measurement = Vec<T>;
     type AggregateResult = Vec<T>;
     type Field = F;
@@ -170,7 +183,10 @@ impl<T: FixedUnsigned, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F>
         let mut integer_entries : Vec<<Self::Field as FieldElement>::Integer>  = Vec::with_capacity(self.entries);
         for fp_summand in fp_summands
         {
-            let summand = &F::Integer::try_from(<T as Fixed>::to_bits(*fp_summand)).unwrap();
+            let i = fp_summand.to_bits(); //signed two's complement integer representation
+            let u = u128::try_from(i).unwrap(); // reinterpret as unsigned
+            // invert the left-most bit to get our format
+            let summand = &F::Integer::try_from(u ^ (1 << (self.bits_per_entry - 1))).unwrap();
 
             if *summand > self.max_summand
             {
@@ -322,7 +338,7 @@ impl<T: FixedUnsigned, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F>
             let mut decoded = Self::Field::zero();
             for (l, bit) in input[start..end].iter().enumerate()
             {
-                let w = Self::Field::from( <Self::Field as FieldElement>::Integer::try_from(1 << l).unwrap() );
+                let w = Self::Field::from( <Self::Field as FieldElement>::Integer::try_from((1 << l) as u128).unwrap() );
                 decoded += w * *bit;
             }
             decoded_vector.push(decoded);

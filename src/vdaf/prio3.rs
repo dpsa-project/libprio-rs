@@ -171,7 +171,7 @@ impl Prio3Aes128FixedPointVecSum {
 /// The fixed point vector sum type. Each measurement is a vector of 64-bit fixed point decimals 
 /// with 8 fractional digits and the aggregate is the sum. The verification function ensures the
 /// L2 norm of the vector is <= 1.
-pub type Prio3Aes128FixedPointL2BoundedVecSum = Prio3<FixedPointL2BoundedVecSum<FixedU16<U8>,Field128>, PrgAes128, 16>;
+pub type Prio3Aes128FixedPointL2BoundedVecSum = Prio3<FixedPointL2BoundedVecSum<FixedI16<U15>,Field128>, PrgAes128, 16>;
 
 impl Prio3Aes128FixedPointL2BoundedVecSum {
     /// Construct an instance of this VDAF with the given suite, number of aggregators and required
@@ -1202,9 +1202,9 @@ mod tests {
     fn test_prio3_bunded_fpvec_sum() {
         let prio3 = Prio3Aes128FixedPointL2BoundedVecSum::new(16, 1).unwrap();
 
-        let fp_zero = fixed!(0.0: U8F8);
-        let fp_one = fixed!(1.0: U8F8);
-        let fp_f = fixed!(23.42: U8F8);
+        let fp_zero = fixed!(0.0: I1F15);
+        let fp_one = fixed!(0.901: I1F15);
+        let fp_f = fixed!(-0.2342: I1F15);
         let fp_vec1 = vec!(fp_zero);//, fp_f - fp_one, fp_zero);
         let fp_vec2 = vec!(fp_f);//, fp_one);//, fp_f);
         let fp_list = [fp_vec1, fp_vec2];
