@@ -157,6 +157,8 @@ impl<F: FieldElement> PolyEval<F> {
     fn call_poly_fft(&mut self, outp: &mut [F], inp: &[Vec<F>]) -> Result<(), FlpError> {
         let n = self.n;
         let inp = &inp[0];
+        println!("# inside call_poly_fft. n={n}, outp.length={}, inpl.length={}", outp.len(), inp.len());
+        println!("my values are: {:?}", self.poly);
 
         let mut inp_vals = vec![F::zero(); n];
         discrete_fourier_transform(&mut inp_vals, inp, n)?;
@@ -165,9 +167,12 @@ impl<F: FieldElement> PolyEval<F> {
         let mut x = vec![F::zero(); n];
         x[..inp.len()].clone_from_slice(inp);
 
+        let max_outp = std::cmp::min(outp.len(), n);
+
         outp[0] = self.poly[0];
         for i in 1..self.poly.len() {
-            for j in 0..outp.len() {
+            // for j in 0..outp.len() {
+            for j in 0..max_outp {
                 outp[j] += self.poly[i] * x[j];
             }
 

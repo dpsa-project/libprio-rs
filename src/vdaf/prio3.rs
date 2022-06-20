@@ -1200,23 +1200,38 @@ mod tests {
 
     #[test]
     fn test_prio3_bunded_fpvec_sum() {
-        let prio3 = Prio3Aes128FixedPointL2BoundedVecSum::new(16, 1).unwrap();
+        let prio3 = Prio3Aes128FixedPointL2BoundedVecSum::new(16, 3).unwrap();
+        println!("New sucessfull! ========================");
 
-        let fp_zero = fixed!(0.0: I1F15);
-        let fp_one = fixed!(0.901: I1F15);
-        let fp_f = fixed!(-0.2342: I1F15);
-        let fp_vec1 = vec!(fp_zero);//, fp_f - fp_one, fp_zero);
-        let fp_vec2 = vec!(fp_f);//, fp_one);//, fp_f);
+        // let fp_zero = fixed!(0.0: I1F15);
+        // let fp_one = fixed!(0.901: I1F15);
+        // let fp_f = fixed!(-0.2342: I1F15);
+        // let fp_vec1 = vec!(fp_zero);//, fp_f - fp_one, fp_zero);
+        // let fp_vec2 = vec!(fp_f);//, fp_one);//, fp_f);
+
+
+        let fp_2_inv  = fixed!(0.5: I1F15);
+        let fp_4_inv  = fixed!(0.25: I1F15);
+        let fp_8_inv  = fixed!(0.125: I1F15);
+        let fp_16_inv = fixed!(0.0625: I1F15);
+
+        // let fp_zero = fixed!(0.0: U8F8);
+        // let fp_one = fixed!(1.0: U8F8);
+        // let fp_f = fixed!(23.42: U8F8);
+        let fp_vec1 = vec!(fp_4_inv, fp_8_inv, fp_16_inv);
+        let fp_vec2 = vec!(fp_4_inv, fp_8_inv, fp_16_inv);
+
         let fp_list = [fp_vec1, fp_vec2];
         assert_eq!(
             run_vdaf(&prio3, &(), fp_list).unwrap(),
-            vec!(fp_f)//, fp_f)//, fp_f)
+            vec!(0.5, 0.25, 0.125)
         );
 
         let mut verify_key = [0; 16];
         thread_rng().fill(&mut verify_key[..]);
         let nonce = b"This is a good nonce.";
 
+        /*
         let mut input_shares = prio3.shard(&vec!(fp_zero, fp_f - fp_one, fp_zero)).unwrap();
         input_shares[0].joint_rand_param.as_mut().unwrap().blind.0[0] ^= 255;
         let result = run_vdaf_prepare(&prio3, &verify_key, &(), nonce, input_shares);
@@ -1247,5 +1262,6 @@ mod tests {
         assert_matches!(result, Err(VdafError::Uncategorized(_)));
 
         test_prepare_state_serialization(&prio3, &vec!(fp_zero, fp_f - fp_one, fp_zero)).unwrap();
+        */
     }
 }
