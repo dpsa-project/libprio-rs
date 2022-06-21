@@ -22,19 +22,34 @@ pub struct FixedPointL2BoundedVecSum<T: Fixed, F: FieldElement>
     bits_per_entry: usize,
     entries: usize,
     bits_for_norm: usize,
-    num_of_clients: u32,
+    num_of_clients: usize,
     one: <F as FieldElement>::Integer,
     max_summand: <F as FieldElement>::Integer,
     range_01_checker: Vec<F>,
     square_computer: Vec<F>,
     phantom: PhantomData<T>,
+    //
+    // range/position constants
+    range_entries_begin: usize,
+    range_entries_end: usize,
+    range_norm_begin: usize,
+    range_norm_end: usize,
+    pos_constantbit: usize,
 }
+
+// layout:
+//
+// |---- bits_per_entry * entries ----|---- bits_for_norm ----|---- 1 ----|
+//   ^                                  ^                       ^
+//   \- the input vector entries        |                       |
+//                                      \- the encoded norm     |
+//                                                              \- a single element used for splitting of constants
 
 
 
 impl<T: Fixed, F: FieldElement> FixedPointL2BoundedVecSum<T, F>
 {
-    pub fn new(entries: usize, num_of_clients: u32) -> Result<Self, FlpError>
+    pub fn new(entries: usize, num_of_clients: usize) -> Result<Self, FlpError>
     {
         if <T as Fixed>::INT_NBITS != 1 {
             return Err(FlpError::Encode(format!(
@@ -102,7 +117,14 @@ impl<T: Fixed, F: FieldElement> FixedPointL2BoundedVecSum<T, F>
             max_summand,
             range_01_checker: poly_range_check(0, 2),
             square_computer: vec![F::zero(), F::zero(), F::one()],
-            phantom: PhantomData
+            phantom: PhantomData,
+
+            // range constants
+            range_entries_begin: 0,
+            range_entries_end: entries*bits,
+            range_norm_begin: entries*bits,
+            range_norm_end: entries*bits+bits_for_norm,
+            pos_constantbit: entries*bits+bits_for_norm,
         });
         println!("Created fvn with: {res:?}");
         res
@@ -133,7 +155,7 @@ fn decode_field_bits<F>(bits: &[F]) -> F where
 
 //
 // computing the norm of a vector of field entries
-fn compute_norm_of_entries<F,Fs,SquareFun,E>(entries: Fs, bits_per_entry: usize, sq: &mut SquareFun) -> Result<F,E> where
+fn compute_norm_of_entries<F,Fs,SquareFun,E>(entries: Fs, bits_per_entry: usize, constant_part_multiplier: F, sq: &mut SquareFun) -> Result<F,E> where
     F : FieldElement,
     Fs : IntoIterator<Item = F>,
     SquareFun : FnMut(F) -> Result<F,E>
@@ -152,7 +174,7 @@ fn compute_norm_of_entries<F,Fs,SquareFun,E>(entries: Fs, bits_per_entry: usize,
     for entry in entries.into_iter()
     {
         let summand = sq(entry)?
-            + F::from(constant_part)
+            + F::from(constant_part)*constant_part_multiplier
             - F::from(linear_part)*(entry);
         computed_norm += summand;
     }
@@ -202,12 +224,15 @@ impl<T: Fixed, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F> where
         }
 
 
+        //-------------------------------------------------------
+        // vector entries
+        //-------------------------------------------------------
+        //
         // then encode them bitwise
         let mut encoded: Vec<Self::Field> = Vec::with_capacity(self.bits_per_entry * self.entries + self.bits_for_norm);
-
+        //
         for entry in integer_entries.clone()
         {
-
             // push all bits of all entries
             for l in 0..self.bits_per_entry
             {
@@ -217,20 +242,39 @@ impl<T: Fixed, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F> where
             }
         }
 
+
+        //-------------------------------------------------------
+        // norm
+        //-------------------------------------------------------
+        //
         // compute the norm
         let field_entries = integer_entries.iter().map(|&x| Self::Field::from(x));
-        let norm = compute_norm_of_entries::<_,_,_,FlpError>(field_entries, self.bits_per_entry, &mut |x| Ok(x * x))?;
+        let norm = compute_norm_of_entries::<_,_,_,FlpError>(field_entries, self.bits_per_entry, Self::Field::from(self.one), &mut |x| Ok(x * x))?;
         let norm_int = <Self::Field as FieldElement>::Integer::from(norm);
-
+        println!("Computed norm of entries: {norm_int:?}");
+        //
+        println!("The bit encoding is: ");
+        //
         // push the bits of the norm
         for l in 0..self.bits_for_norm
         {
             // encoded.push(Self::Field::zero());
             let l = <Self::Field as FieldElement>::Integer::try_from(l).unwrap();
             let w = Self::Field::from((norm_int >> l) & self.one);
+            print!("{w:?}");
             encoded.push(w);
         }
+        println!("");
 
+
+        //-------------------------------------------------------
+        // constant bit
+        //-------------------------------------------------------
+        //
+        encoded.push(Self::Field::from(self.one));
+
+
+        // return
         Ok(encoded)
     }
 
@@ -262,7 +306,7 @@ impl<T: Fixed, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F> where
         // (0): check that field element is 0 or 1
         let gadget0 = PolyEval::new(
             self.range_01_checker.clone(),
-            self.bits_per_entry * self.entries + self.bits_for_norm,
+            self.bits_per_entry * self.entries + self.bits_for_norm + 1,
         );
         //
         // (1): compute square of field element
@@ -322,11 +366,14 @@ impl<T: Fixed, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F> where
             .chunks(self.bits_per_entry)
             .map(decode_field_bits);
         //
+        // the constant bit
+        let constant_bit = input[self.pos_constantbit];
+        //
         // the computed norm
-        let computed_norm = compute_norm_of_entries(decoded_entries, self.bits_per_entry, &mut |x| g[1].call(std::slice::from_ref(&x)))?;
+        let computed_norm = compute_norm_of_entries(decoded_entries, self.bits_per_entry, constant_bit, &mut |x| g[1].call(std::slice::from_ref(&x)))?;
         //
         // the claimed norm
-        let claimed_norm_enc = &input[self.entries*self.bits_per_entry..];
+        let claimed_norm_enc = &input[self.range_norm_begin..self.range_norm_end];
         println!("before norm decoding, it is: {:?}", claimed_norm_enc);
         println!("parameters are: \nself.entries: {}\nself.bits_per_entry: {}\nself.bits_for_norm: {}\nnorm_length: {}", self.entries, self.bits_per_entry, self.bits_for_norm, claimed_norm_enc.len());
         let claimed_norm = decode_field_bits(claimed_norm_enc);
@@ -354,7 +401,6 @@ impl<T: Fixed, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F> where
         truncate_call_check(self, &input)?;
 
 
-
         let mut decoded_vector = vec![];
 
         for i_entry in 0..self.entries
@@ -374,7 +420,7 @@ impl<T: Fixed, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F> where
     }
 
     fn input_len(&self) -> usize {
-        self.bits_per_entry * self.entries + self.bits_for_norm
+        self.bits_per_entry * self.entries + self.bits_for_norm + 1
     }
 
     fn proof_len(&self) -> usize {

@@ -176,7 +176,7 @@ pub type Prio3Aes128FixedPointL2BoundedVecSum = Prio3<FixedPointL2BoundedVecSum<
 impl Prio3Aes128FixedPointL2BoundedVecSum {
     /// Construct an instance of this VDAF with the given suite, number of aggregators and required
     /// bit length. The bit length must not exceed 64.
-    pub fn new(num_aggregators: u8, entries: usize, num_clients: u32) -> Result<Self, VdafError> {
+    pub fn new(num_aggregators: u8, entries: usize, num_clients: usize) -> Result<Self, VdafError> {
         check_num_aggregators(num_aggregators)?;
 
         Ok(Prio3 {
@@ -1210,6 +1210,7 @@ mod tests {
         // let fp_vec2 = vec!(fp_f);//, fp_one);//, fp_f);
 
 
+        let fp_high  = fixed!(0.9: I1F15);
         let fp_2_inv  = fixed!(0.5: I1F15);
         let fp_4_inv  = fixed!(0.25: I1F15);
         let fp_8_inv  = fixed!(0.125: I1F15);
@@ -1221,7 +1222,7 @@ mod tests {
         let fp_vec1 = vec!(fp_4_inv, fp_8_inv, fp_16_inv);
         let fp_vec2 = vec!(fp_4_inv, fp_8_inv, fp_16_inv);
 
-        let fp_vec3 = vec!(fp_2_inv, fp_2_inv, fp_2_inv);
+        let fp_vec3 = vec!(fp_high, fp_high, fp_high);
 
         let fp_list = [fp_vec1, fp_vec2];
         // let fp_list = [fp_vec3, fp_vec1];
