@@ -26,6 +26,7 @@ pub struct FixedPointL2BoundedVecSum<T: Fixed, F: FieldElement>
     one: <F as FieldElement>::Integer,
     max_summand: <F as FieldElement>::Integer,
     range_01_checker: Vec<F>,
+    range_1_checker: Vec<F>,
     square_computer: Vec<F>,
     phantom: PhantomData<T>,
     //
@@ -116,6 +117,7 @@ impl<T: Fixed, F: FieldElement> FixedPointL2BoundedVecSum<T, F>
             one,
             max_summand,
             range_01_checker: poly_range_check(0, 2),
+            range_1_checker: poly_range_check(1, 2),
             square_computer: vec![F::zero(), F::zero(), F::one()],
             phantom: PhantomData,
 
@@ -306,17 +308,22 @@ impl<T: Fixed, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F> where
         // (0): check that field element is 0 or 1
         let gadget0 = PolyEval::new(
             self.range_01_checker.clone(),
-            self.bits_per_entry * self.entries + self.bits_for_norm + 1,
+            self.bits_per_entry * self.entries + self.bits_for_norm,
         );
         //
-        // (1): compute square of field element
+        // (1): check that field element is 1
         let gadget1 = PolyEval::new(
+            self.range_1_checker.clone(),
+            1,
+        );
+        //
+        // (2): compute square of field element
+        let gadget2 = PolyEval::new(
             self.square_computer.clone(),
             self.entries,
         );
 
-        // let res : Vec<Box<dyn Gadget<Self::Field>>> = vec![Box::new(gadget0.clone())]; // , Box::new(gadget0)];
-        let res : Vec<Box<dyn Gadget<Self::Field>>> = vec![Box::new(gadget0) , Box::new(gadget1)];
+        let res : Vec<Box<dyn Gadget<Self::Field>>> = vec![Box::new(gadget0), Box::new(gadget1), Box::new(gadget2)];
         println!("Gadget ended ! ========================");
         res
     }
@@ -350,7 +357,8 @@ impl<T: Fixed, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F> where
         // Check that each element is a 0 or 1:
         let mut validity_check = Self::Field::zero();
         let mut r = joint_rand[0];
-        for chunk in input.chunks(1) {
+        for chunk in input[self.range_entries_begin .. self.range_norm_end].chunks(1)
+        {
             validity_check += r * g[0].call(chunk)?;
             r *= joint_rand[0];
         }
@@ -370,7 +378,7 @@ impl<T: Fixed, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F> where
         let constant_bit = input[self.pos_constantbit];
         //
         // the computed norm
-        let computed_norm = compute_norm_of_entries(decoded_entries, self.bits_per_entry, constant_bit, &mut |x| g[1].call(std::slice::from_ref(&x)))?;
+        let computed_norm = compute_norm_of_entries(decoded_entries, self.bits_per_entry, constant_bit, &mut |x| g[2].call(std::slice::from_ref(&x)))?;
         //
         // the claimed norm
         let claimed_norm_enc = &input[self.range_norm_begin..self.range_norm_end];
@@ -380,18 +388,23 @@ impl<T: Fixed, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F> where
         //
         // add the check that computed norm == claimed norm
         validity_check += r * (computed_norm - claimed_norm);
+        r *= joint_rand[0];
         println!("////////////////////////////////////////");
         println!("Computed norm: {computed_norm:?}");
         println!("Claimed  norm: {claimed_norm:?}");
         println!("\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\");
 
 
+        //--------------------------------------------
+        // constant bit
+        //
+        // make sure that the bit is exactly 1
+        validity_check += r*(g[1].call(std::slice::from_ref(&constant_bit))?);
 
-        println!("Valid ended! ====================");
 
         // Return the result
+        println!("Valid ended! ====================");
         Ok(validity_check)
-        // Ok(Self::Field::zero())
     }
 
     fn truncate(&self, input: Vec<Self::Field>) -> Result<Vec<Self::Field>, FlpError>
@@ -424,13 +437,18 @@ impl<T: Fixed, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F> where
     }
 
     fn proof_len(&self) -> usize {
+        // computed via
+        // `gadget.arity() + gadget.degree() * (number_of_calls - 1) + 1;`
+        //
         let proof_gadget_0 = 2 * ((1 + (self.bits_per_entry * self.entries + self.bits_for_norm)).next_power_of_two() - 1) + 2;
-        let proof_gadget_1 = 2 * ((1 + self.entries).next_power_of_two() - 1) + 2;
-        proof_gadget_0 + proof_gadget_1
+        let proof_gadget_1 = 1 * ((1 + (1usize)).next_power_of_two() - 1) + 2;
+        let proof_gadget_2 = 2 * ((1 + self.entries).next_power_of_two() - 1) + 2;
+        println!("we have lengths:\n{proof_gadget_0}\n{proof_gadget_1}\n{proof_gadget_2}");
+        proof_gadget_0 + proof_gadget_1 + proof_gadget_2
     }
 
     fn verifier_len(&self) -> usize {
-        5 // why?
+        7 // why?
     }
 
     fn output_len(&self) -> usize {
@@ -442,11 +460,11 @@ impl<T: Fixed, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F> where
     }
 
     fn prove_rand_len(&self) -> usize {
-        2
+        3
     }
 
     fn query_rand_len(&self) -> usize {
-        2
+        3
     }
 }
 

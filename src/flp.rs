@@ -308,7 +308,10 @@ pub trait Type: Sized + Eq + Clone + Debug {
 
             // Construct the gadget polynomial `G(f[0], ..., f[g_arity-1])` and append it to `proof`.
             gadget.call_poly(&mut proof[proof_len + gadget.arity()..], &f)?;
-            proof_len += gadget.arity() + gadget.degree() * (m - 1) + 1;
+            let proof_len_addval = gadget.arity() + gadget.degree() * (m - 1) + 1;
+            println!("gadget[{idx}] has len: {proof_len_addval}");
+            proof_len += proof_len_addval;
+            // proof_len += gadget.arity() + gadget.degree() * (m - 1) + 1;
         }
 
         // Truncate the buffer to the size of the proof.
