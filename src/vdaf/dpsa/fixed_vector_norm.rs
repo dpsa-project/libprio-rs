@@ -40,11 +40,11 @@ pub struct FixedPointL2BoundedVecSum<T: Fixed, F: FieldElement>
 
 // layout:
 //
-// |---- bits_per_entry * entries ----|---- bits_for_norm ----|---- 1 ----|
-//   ^                                  ^                       ^
-//   \- the input vector entries        |                       |
-//                                      \- the encoded norm     |
-//                                                              \- a single element used for splitting of constants
+// |---- bits_per_entry * entries ----|---- bits_for_norm ----|
+//   ^                                  ^
+//   \- the input vector entries        |
+//                                      \- the encoded norm
+//
 
 
 
@@ -269,13 +269,6 @@ impl<T: Fixed, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F> where
         println!("");
 
 
-        //-------------------------------------------------------
-        // constant bit
-        //-------------------------------------------------------
-        //
-        encoded.push(Self::Field::from(self.one));
-
-
         // return
         Ok(encoded)
     }
@@ -311,19 +304,13 @@ impl<T: Fixed, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F> where
             self.bits_per_entry * self.entries + self.bits_for_norm,
         );
         //
-        // (1): check that field element is 1
+        // (1): compute square of field element
         let gadget1 = PolyEval::new(
-            self.range_1_checker.clone(),
-            1,
-        );
-        //
-        // (2): compute square of field element
-        let gadget2 = PolyEval::new(
             self.square_computer.clone(),
             self.entries,
         );
 
-        let res : Vec<Box<dyn Gadget<Self::Field>>> = vec![Box::new(gadget0), Box::new(gadget1), Box::new(gadget2)];
+        let res : Vec<Box<dyn Gadget<Self::Field>>> = vec![Box::new(gadget0), Box::new(gadget1)];
         println!("Gadget ended ! ========================");
         res
     }
@@ -375,10 +362,12 @@ impl<T: Fixed, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F> where
             .map(decode_field_bits);
         //
         // the constant bit
-        let constant_bit = input[self.pos_constantbit];
+        let num_of_clients = <Self::Field as FieldElement>::Integer::try_from(self.num_of_clients).unwrap();
+        let constant_part_multiplier = Self::Field::from(self.one) / Self::Field::from(num_of_clients);
+        // let constant_part_multiplier = input[self.pos_constantbit];
         //
         // the computed norm
-        let computed_norm = compute_norm_of_entries(decoded_entries, self.bits_per_entry, constant_bit, &mut |x| g[2].call(std::slice::from_ref(&x)))?;
+        let computed_norm = compute_norm_of_entries(decoded_entries, self.bits_per_entry, constant_part_multiplier, &mut |x| g[1].call(std::slice::from_ref(&x)))?;
         //
         // the claimed norm
         let claimed_norm_enc = &input[self.range_norm_begin..self.range_norm_end];
@@ -393,13 +382,6 @@ impl<T: Fixed, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F> where
         println!("Computed norm: {computed_norm:?}");
         println!("Claimed  norm: {claimed_norm:?}");
         println!("\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\");
-
-
-        //--------------------------------------------
-        // constant bit
-        //
-        // make sure that the bit is exactly 1
-        validity_check += r*(g[1].call(std::slice::from_ref(&constant_bit))?);
 
 
         // Return the result
@@ -433,22 +415,21 @@ impl<T: Fixed, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F> where
     }
 
     fn input_len(&self) -> usize {
-        self.bits_per_entry * self.entries + self.bits_for_norm + 1
+        self.bits_per_entry * self.entries + self.bits_for_norm
     }
 
     fn proof_len(&self) -> usize {
         // computed via
-        // `gadget.arity() + gadget.degree() * (number_of_calls - 1) + 1;`
+        // `gadget.arity() + gadget.degree() * ((1 + gadget.calls()).next_power_of_two() - 1) + 1;`
         //
         let proof_gadget_0 = 2 * ((1 + (self.bits_per_entry * self.entries + self.bits_for_norm)).next_power_of_two() - 1) + 2;
-        let proof_gadget_1 = 1 * ((1 + (1usize)).next_power_of_two() - 1) + 2;
-        let proof_gadget_2 = 2 * ((1 + self.entries).next_power_of_two() - 1) + 2;
-        println!("we have lengths:\n{proof_gadget_0}\n{proof_gadget_1}\n{proof_gadget_2}");
-        proof_gadget_0 + proof_gadget_1 + proof_gadget_2
+        let proof_gadget_1 = 2 * ((1 + self.entries).next_power_of_two() - 1) + 2;
+        println!("we have lengths:\n{proof_gadget_0}\n{proof_gadget_1}");
+        proof_gadget_0 + proof_gadget_1
     }
 
     fn verifier_len(&self) -> usize {
-        7 // why?
+        5 // why?
     }
 
     fn output_len(&self) -> usize {
@@ -460,11 +441,11 @@ impl<T: Fixed, F: FieldElement> Type for FixedPointL2BoundedVecSum<T, F> where
     }
 
     fn prove_rand_len(&self) -> usize {
-        3
+        2
     }
 
     fn query_rand_len(&self) -> usize {
-        3
+        2
     }
 }
 
