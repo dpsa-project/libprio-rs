@@ -150,9 +150,15 @@ where
     type PrepareState: Clone + Debug;
 
     /// The type of messages broadcast by each aggregator at each round of the Prepare Process.
+    ///
+    /// Decoding takes a [`Self::PrepareState`] as a parameter; this [`Self::PrepareState`] may be
+    /// associated with any aggregator involved in the execution of the VDAF.
     type PrepareShare: Clone + Debug + ParameterizedDecode<Self::PrepareState> + Encode;
 
     /// Result of preprocessing a round of preparation shares.
+    ///
+    /// Decoding takes a [`Self::PrepareState`] as a parameter; this [`Self::PrepareState`] may be
+    /// associated with any aggregator involved in the execution of the VDAF.
     type PrepareMessage: Clone + Debug + ParameterizedDecode<Self::PrepareState> + Encode;
 
     /// Begins the Prepare process with the other Aggregators. The [`Self::PrepareState`] returned
@@ -214,7 +220,7 @@ where
     for<'a> &'a V::AggregateShare: Into<Vec<u8>>,
 {
     /// Continue processing.
-    Continue(V::PrepareState, V::PrepareMessage),
+    Continue(V::PrepareState, V::PrepareShare),
 
     /// Finish processing and return the output share.
     Finish(V::OutputShare),
@@ -433,7 +439,7 @@ where
         for state in states.iter_mut() {
             match vdaf.prepare_step(
                 state.clone(),
-                V::PrepareMessage::get_decoded_with_param(&state, &inbound)
+                V::PrepareMessage::get_decoded_with_param(state, &inbound)
                     .expect("failed to decode prep message"),
             )? {
                 PrepareTransition::Continue(new_state, msg) => {

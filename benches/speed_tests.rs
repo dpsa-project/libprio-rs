@@ -7,17 +7,16 @@ use prio::client::Client as Prio2Client;
 use prio::codec::Encode;
 use prio::encrypt::PublicKey;
 use prio::field::{random_vector, Field128 as F, FieldElement};
-use prio::flp::gadgets::Mul;
-use prio::server::{generate_verification_message, ValidationMemory};
 #[cfg(feature = "multithreaded")]
-use prio::vdaf::prio3::Prio3Aes128CountVecMultithreaded;
-use prio::vdaf::{
-    prio3::{
-        Prio3Aes128Count, Prio3Aes128CountVec, Prio3Aes128Histogram, Prio3Aes128Sum,
-        Prio3InputShare,
-    },
-    Client as Prio3Client,
+use prio::flp::gadgets::ParallelSumMultithreaded;
+use prio::flp::{
+    gadgets::{BlindPolyEval, Mul, ParallelSum},
+    types::CountVec,
+    Type,
 };
+use prio::server::{generate_verification_message, ValidationMemory};
+use prio::vdaf::prio3::Prio3;
+use prio::vdaf::{prio3::Prio3InputShare, Client as Prio3Client};
 
 /// This benchmark compares the performance of recursive and iterative FFT.
 pub fn fft(c: &mut Criterion) {
@@ -83,37 +82,38 @@ const PUBKEY2: &str =
     "BNNOqoU54GPo+1gTPv+hCgA9U2ZCKd76yOMrWa1xTWgeb4LhFLMQIQoRwDVaW64g/WTdcxT4rDULoycUNFB60LE=";
 
 /// Benchmark generation and verification of boolean vectors.
-pub fn bool_vec(c: &mut Criterion) {
-    let test_sizes = [1, 10, 100, 1_000, 10_000];
+pub fn count_vec(c: &mut Criterion) {
+    let test_sizes = [10, 100, 1_000];
     for size in test_sizes.iter() {
-        let data = vec![F::zero(); *size];
+        let input = vec![F::zero(); *size];
 
-        // v2
+        // Prio2
         let pk1 = PublicKey::from_base64(PUBKEY1).unwrap();
         let pk2 = PublicKey::from_base64(PUBKEY2).unwrap();
         let mut client: Prio2Client<F> =
-            Prio2Client::new(data.len(), pk1.clone(), pk2.clone()).unwrap();
+            Prio2Client::new(input.len(), pk1.clone(), pk2.clone()).unwrap();
 
-        c.bench_function(&format!("bool vec v2 prove, size={}", *size), |b| {
-            b.iter(|| {
-                benchmarked_v2_prove(&data, &mut client);
-            })
-        });
         println!(
-            "bool vec v2 proof size={}\n",
-            benchmarked_v2_prove(&data, &mut client).len()
+            "prio2 proof size={}\n",
+            benchmarked_v2_prove(&input, &mut client).len()
         );
 
-        let data_and_proof = benchmarked_v2_prove(&data, &mut client);
-        let mut validator: ValidationMemory<F> = ValidationMemory::new(data.len());
+        c.bench_function(&format!("prio2 prove, size={}", *size), |b| {
+            b.iter(|| {
+                benchmarked_v2_prove(&input, &mut client);
+            })
+        });
+
+        let input_and_proof = benchmarked_v2_prove(&input, &mut client);
+        let mut validator: ValidationMemory<F> = ValidationMemory::new(input.len());
         let eval_at = random_vector(1).unwrap()[0];
 
-        c.bench_function(&format!("bool vec v2 query, size={}", *size), |b| {
+        c.bench_function(&format!("prio2 query, size={}", *size), |b| {
             b.iter(|| {
                 generate_verification_message(
-                    data.len(),
+                    input.len(),
                     eval_at,
-                    &data_and_proof,
+                    &input_and_proof,
                     true,
                     &mut validator,
                 )
@@ -121,7 +121,57 @@ pub fn bool_vec(c: &mut Criterion) {
             })
         });
 
-        // TODO(cjpatton) Add benchmark for comparable FLP functionality.
+        // Prio3
+        let count_vec: CountVec<F, ParallelSum<F, BlindPolyEval<F>>> = CountVec::new(*size);
+        let joint_rand = random_vector(count_vec.joint_rand_len()).unwrap();
+        let prove_rand = random_vector(count_vec.prove_rand_len()).unwrap();
+        let proof = count_vec.prove(&input, &prove_rand, &joint_rand).unwrap();
+
+        println!("prio3 countvec proof size={}\n", proof.len());
+
+        c.bench_function(&format!("prio3 countvec prove, size={}", *size), |b| {
+            b.iter(|| {
+                let prove_rand = random_vector(count_vec.prove_rand_len()).unwrap();
+                count_vec.prove(&input, &prove_rand, &joint_rand).unwrap();
+            })
+        });
+
+        c.bench_function(&format!("prio3 countvec query, size={}", *size), |b| {
+            b.iter(|| {
+                let query_rand = random_vector(count_vec.query_rand_len()).unwrap();
+                count_vec
+                    .query(&input, &proof, &query_rand, &joint_rand, 1)
+                    .unwrap();
+            })
+        });
+
+        #[cfg(feature = "multithreaded")]
+        {
+            let count_vec: CountVec<F, ParallelSumMultithreaded<F, BlindPolyEval<F>>> =
+                CountVec::new(*size);
+
+            c.bench_function(
+                &format!("prio3 countvec multithreaded prove, size={}", *size),
+                |b| {
+                    b.iter(|| {
+                        let prove_rand = random_vector(count_vec.prove_rand_len()).unwrap();
+                        count_vec.prove(&input, &prove_rand, &joint_rand).unwrap();
+                    })
+                },
+            );
+
+            c.bench_function(
+                &format!("prio3 countvec multithreaded query, size={}", *size),
+                |b| {
+                    b.iter(|| {
+                        let query_rand = random_vector(count_vec.query_rand_len()).unwrap();
+                        count_vec
+                            .query(&input, &proof, &query_rand, &joint_rand, 1)
+                            .unwrap();
+                    })
+                },
+            );
+        }
     }
 }
 
@@ -129,7 +179,7 @@ pub fn bool_vec(c: &mut Criterion) {
 pub fn prio3_client(c: &mut Criterion) {
     let num_shares = 2;
 
-    let prio3 = Prio3Aes128Count::new(num_shares).unwrap();
+    let prio3 = Prio3::new_aes128_count(num_shares).unwrap();
     let measurement = 1;
     println!(
         "prio3 count size = {}",
@@ -142,7 +192,7 @@ pub fn prio3_client(c: &mut Criterion) {
     });
 
     let buckets: Vec<u64> = (1..10).collect();
-    let prio3 = Prio3Aes128Histogram::new(num_shares, &buckets).unwrap();
+    let prio3 = Prio3::new_aes128_histogram(num_shares, &buckets).unwrap();
     let measurement = 17;
     println!(
         "prio3 histogram ({} buckets) size = {}",
@@ -159,7 +209,7 @@ pub fn prio3_client(c: &mut Criterion) {
     );
 
     let bits = 32;
-    let prio3 = Prio3Aes128Sum::new(num_shares, bits).unwrap();
+    let prio3 = Prio3::new_aes128_sum(num_shares, bits).unwrap();
     let measurement = 1337;
     println!(
         "prio3 sum ({} bits) size = {}",
@@ -173,7 +223,7 @@ pub fn prio3_client(c: &mut Criterion) {
     });
 
     let len = 1000;
-    let prio3 = Prio3Aes128CountVec::new(num_shares, len).unwrap();
+    let prio3 = Prio3::new_aes128_count_vec(num_shares, len).unwrap();
     let measurement = vec![0; len];
     println!(
         "prio3 countvec ({} len) size = {}",
@@ -188,7 +238,7 @@ pub fn prio3_client(c: &mut Criterion) {
 
     #[cfg(feature = "multithreaded")]
     {
-        let prio3 = Prio3Aes128CountVecMultithreaded::new(num_shares, len).unwrap();
+        let prio3 = Prio3::new_aes128_count_vec_multithreaded(num_shares, len).unwrap();
         let measurement = vec![0; len];
         println!(
             "prio3 countvec multithreaded ({} len) size = {}",
@@ -214,5 +264,5 @@ fn prio3_input_share_size<F: FieldElement, const L: usize>(
     size
 }
 
-criterion_group!(benches, prio3_client, bool_vec, poly_mul, prng, fft);
+criterion_group!(benches, count_vec, prio3_client, poly_mul, prng, fft);
 criterion_main!(benches);
