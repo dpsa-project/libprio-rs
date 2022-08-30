@@ -38,6 +38,7 @@ use crate::flp::gadgets::ParallelSumMultithreaded;
 #[cfg(feature = "crypto-dependencies")]
 use crate::flp::gadgets::{BlindPolyEval, ParallelSum};
 use crate::flp::types::fixedpoint_l2::FixedPointBoundedL2VecSum;
+use crate::flp::types::fixedpoint_l2_parallel::FixedPointBoundedL2VecSumParallel;
 #[cfg(feature = "crypto-dependencies")]
 use crate::flp::types::{Average, Count, CountVec, Histogram, Sum};
 use crate::flp::Type;
@@ -153,6 +154,33 @@ impl Prio3Aes128FixedPoint16BoundedL2VecSum {
         Prio3::new(num_aggregators, FixedPointBoundedL2VecSum::new(entries)?)
     }
 }
+
+
+/// The fixed point vector sum type. Each measurement is a vector of 16-bit fixed point decimals
+/// with 15 fractional digits and the aggregate is the sum. The verification function ensures the
+/// L2 norm of the vector is <= 1.
+#[cfg(feature = "crypto-dependencies")]
+pub type Prio3Aes128FixedPoint16BoundedL2VecSumParallel = Prio3<
+        FixedPointBoundedL2VecSumParallel<FixedI16<U15>, Field64, ParallelSum<Field64, BlindPolyEval<Field64>>>,
+    PrgAes128,
+    16,
+    >;
+
+#[cfg(feature = "crypto-dependencies")]
+impl Prio3Aes128FixedPoint16BoundedL2VecSumParallel {
+    /// Construct an instance of this VDAF with the given number of aggregators and number of
+    /// vector entries.
+    pub fn new_aes128_fixedpoint16_boundedl2_vec_sum_parallel(
+        num_aggregators: u8,
+        entries: usize,
+    ) -> Result<Self, VdafError> {
+        check_num_aggregators(num_aggregators)?;
+
+        Prio3::new(num_aggregators, FixedPointBoundedL2VecSumParallel::new(entries)?)
+    }
+}
+
+
 
 /// The histogram type. Each measurement is an unsigned integer and the result is a histogram
 /// representation of the distribution. The bucket boundaries are fixed in advance.
