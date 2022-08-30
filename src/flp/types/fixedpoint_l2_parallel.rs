@@ -477,12 +477,12 @@ where
         // computed via
         // `gadget.arity() + gadget.degree()
         //   * ((1 + gadget.calls()).next_power_of_two() - 1) + 1;`
-        let proof_gadget_0 = 2
-            * ((1 + (self.bits_per_entry * self.entries + self.bits_for_norm)).next_power_of_two()
+        let proof_gadget_0 = 1 + 2 *
+            ((1 + (self.bits_per_entry * self.entries + self.bits_for_norm)).next_power_of_two()
                 - 1)
-            + 2;
-        let proof_gadget_1 = 2 * ((1 + self.entries).next_power_of_two() - 1) + 2;
-        proof_gadget_0 + proof_gadget_1 + 2 // TODO the +2 is just adhoc, actually it should count somewhere above
+            + 1;
+        let proof_gadget_1 = self.entries + 2 * ((1 + self.entries).next_power_of_two() - 1) + 1;
+        proof_gadget_0 + proof_gadget_1
     }
 
     fn verifier_len(&self) -> usize {
@@ -498,7 +498,7 @@ where
     }
 
     fn prove_rand_len(&self) -> usize {
-        6
+        self.entries + 1
     }
 
     fn query_rand_len(&self) -> usize {

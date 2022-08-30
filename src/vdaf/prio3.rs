@@ -186,6 +186,41 @@ impl Prio3Aes128FixedPoint16BoundedL2VecSumParallel {
     }
 }
 
+/// The fixed point vector sum type. Each measurement is a vector of 16-bit fixed point decimals
+/// with 15 fractional digits and the aggregate is the sum. The verification function ensures the
+/// L2 norm of the vector is <= 1.
+#[cfg(feature = "multithreaded")]
+#[cfg(feature = "crypto-dependencies")]
+#[cfg_attr(docsrs, doc(cfg(feature = "multithreaded")))]
+pub type Prio3Aes128FixedPoint16BoundedL2VecSumParallelMultithreaded = Prio3<
+    FixedPointBoundedL2VecSumParallel<
+        FixedI16<U15>,
+        Field64,
+        ParallelSumMultithreaded<Field64, PolyEval<Field64>>,
+    >,
+    PrgAes128,
+    16,
+>;
+
+#[cfg(feature = "multithreaded")]
+#[cfg(feature = "crypto-dependencies")]
+#[cfg_attr(docsrs, doc(cfg(feature = "multithreaded")))]
+impl Prio3Aes128FixedPoint16BoundedL2VecSumParallelMultithreaded {
+    /// Construct an instance of this VDAF with the given number of aggregators and number of
+    /// vector entries.
+    pub fn new_aes128_fixedpoint16_boundedl2_vec_sum_parallel_multithreaded(
+        num_aggregators: u8,
+        entries: usize,
+    ) -> Result<Self, VdafError> {
+        check_num_aggregators(num_aggregators)?;
+
+        Prio3::new(
+            num_aggregators,
+            FixedPointBoundedL2VecSumParallel::new(entries)?,
+        )
+    }
+}
+
 /// The histogram type. Each measurement is an unsigned integer and the result is a histogram
 /// representation of the distribution. The bucket boundaries are fixed in advance.
 #[cfg(feature = "crypto-dependencies")]
