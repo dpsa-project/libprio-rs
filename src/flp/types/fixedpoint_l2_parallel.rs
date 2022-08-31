@@ -486,7 +486,7 @@ where
     }
 
     fn verifier_len(&self) -> usize {
-        7
+        self.entries + 4
     }
 
     fn output_len(&self) -> usize {
