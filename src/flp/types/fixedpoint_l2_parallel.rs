@@ -151,7 +151,7 @@
 //! entail a more fiddly encoding and is not necessary for our usecase.
 
 use crate::field::{FieldElement, FieldElementExt};
-use crate::flp::gadgets::{ParallelSumGadget, PolyEval};
+use crate::flp::gadgets::{ParallelSumGadget, PolyEval, BlindPolyEval};
 use crate::flp::types::call_gadget_on_vec_entries;
 use crate::flp::types::fixedpoint_l2::compatible_float::CompatibleFloat;
 use crate::flp::{FlpError, Gadget, Type};
@@ -177,15 +177,15 @@ use std::{convert::TryInto, fmt::Debug, marker::PhantomData};
 pub struct FixedPointBoundedL2VecSumParallel<
     T: Fixed,
     F: FieldElement,
-    S: ParallelSumGadget<F, PolyEval<F>>,
+    SPoly: ParallelSumGadget<F, PolyEval<F>>,
+    SBlindPoly: ParallelSumGadget<F, BlindPolyEval<F>>,
 > {
     bits_per_entry: usize,
     entries: usize,
     bits_for_norm: usize,
     range_01_checker: Vec<F>,
     norm_summand_poly: Vec<F>,
-    phantom: PhantomData<T>,
-    phantomsum: PhantomData<S>,
+    phantom: PhantomData<(T,SPoly,SBlindPoly)>,
     // range/position constants
     range_norm_begin: usize,
     range_norm_end: usize,
@@ -198,8 +198,8 @@ pub struct FixedPointBoundedL2VecSumParallel<
     gadget1_chunk_len: usize,
 }
 
-impl<T: Fixed, F: FieldElement, S: ParallelSumGadget<F, PolyEval<F>>>
-    FixedPointBoundedL2VecSumParallel<T, F, S>
+impl<T: Fixed, F: FieldElement, SPoly: ParallelSumGadget<F, PolyEval<F>>, SBlindPoly: ParallelSumGadget<F, BlindPolyEval<F>>>
+    FixedPointBoundedL2VecSumParallel<T, F, SPoly, SBlindPoly>
 {
     /// Return a new [`FixedPointBoundedL2VecSumParallel`] type parameter. Each value of this type is a
     /// fixed point vector with `entries` entries.
@@ -283,7 +283,6 @@ impl<T: Fixed, F: FieldElement, S: ParallelSumGadget<F, PolyEval<F>>>
             // polynomial: 0 + 0 * x + 1 * x^2
             norm_summand_poly,
             phantom: PhantomData,
-            phantomsum: PhantomData,
 
             // range constants
             range_norm_begin: entries * bits_per_entry,
@@ -298,8 +297,8 @@ impl<T: Fixed, F: FieldElement, S: ParallelSumGadget<F, PolyEval<F>>>
     }
 }
 
-impl<T: Fixed, F: FieldElement, S: ParallelSumGadget<F, PolyEval<F>>> Clone
-    for FixedPointBoundedL2VecSumParallel<T, F, S>
+impl<T: Fixed, F: FieldElement, SPoly: ParallelSumGadget<F, PolyEval<F>>, SBlindPoly: ParallelSumGadget<F, BlindPolyEval<F>>>
+    Clone for FixedPointBoundedL2VecSumParallel<T, F, SPoly, SBlindPoly>
 {
     fn clone(&self) -> Self {
         Self {
@@ -309,7 +308,6 @@ impl<T: Fixed, F: FieldElement, S: ParallelSumGadget<F, PolyEval<F>>> Clone
             range_01_checker: self.range_01_checker.clone(),
             norm_summand_poly: self.norm_summand_poly.clone(),
             phantom: PhantomData,
-            phantomsum: PhantomData,
 
             // range constants
             range_norm_begin: self.range_norm_begin,
@@ -324,11 +322,12 @@ impl<T: Fixed, F: FieldElement, S: ParallelSumGadget<F, PolyEval<F>>> Clone
     }
 }
 
-impl<T, F, S> Type for FixedPointBoundedL2VecSumParallel<T, F, S>
+impl<T, F, SPoly, SBlindPoly> Type for FixedPointBoundedL2VecSumParallel<T, F, SPoly, SBlindPoly>
 where
     T: Fixed + CompatibleFloat<F>,
     F: FieldElement,
-    S: ParallelSumGadget<F, PolyEval<F>> + Eq + 'static,
+    SPoly: ParallelSumGadget<F, PolyEval<F>> + Eq + 'static,
+    SBlindPoly: ParallelSumGadget<F, BlindPolyEval<F>> + Eq + 'static,
 {
     type Measurement = Vec<T>;
     type AggregateResult = Vec<<T as CompatibleFloat<F>>::Float>;
@@ -388,14 +387,14 @@ where
         // This gadget checks that a field element is zero or one.
         // It is called for all the "bits" of the encoded entries
         // and of the encoded norm.
-        let gadget0 = PolyEval::new(
-            self.range_01_checker.clone(),
-            self.bits_per_entry * self.entries + self.bits_for_norm,
+        let gadget0 = SBlindPoly::new(
+            BlindPolyEval::new(self.range_01_checker.clone(), self.gadget0_calls),
+            self.gadget0_chunk_len,
         );
 
         // This gadget computes the square of a field element.
         // It is called on each entry during norm computation.
-        let gadget1 = S::new(
+        let gadget1 = SPoly::new(
             PolyEval::new(self.norm_summand_poly.clone(), self.gadget1_calls),
             self.gadget1_chunk_len,
         );
@@ -413,6 +412,9 @@ where
     ) -> Result<F, FlpError> {
         self.valid_call_check(input, joint_rand)?;
 
+        let num_of_clients = F::valid_integer_try_from(num_shares)?;
+        let constant_part_multiplier = F::one() / F::from(num_of_clients);
+
         // Ensure that all submitted field elements are either 0 or 1.
         // This is done for:
         //  - all vector entries (each of them encoded in `self.bits_per_entry`
@@ -425,8 +427,26 @@ where
         // entries*bits_per_entry + bits_for_norm.
         //
         // Check that each element is a 0 or 1:
-        let range_check =
-            call_gadget_on_vec_entries(&mut g[0], &input[0..self.range_norm_end], joint_rand[0])?;
+        let mut r = joint_rand[0];
+        let mut range_check = F::zero();
+        let mut padded_chunk = vec![F::zero(); 2 * self.gadget0_chunk_len];
+        for chunk in input[..self.range_norm_end].chunks(self.gadget0_chunk_len) {
+            let d = chunk.len();
+            for i in 0..self.gadget0_chunk_len {
+                if i < d {
+                    padded_chunk[2 * i] = chunk[i];
+                } else {
+                    // If the chunk is smaller than the chunk length, then copy the last element of
+                    // the chunk into the remaining slots.
+                    padded_chunk[2 * i] = chunk[d - 1];
+                }
+                padded_chunk[2 * i + 1] = r * constant_part_multiplier;
+                r *= joint_rand[0];
+            }
+
+            range_check += g[0].call(&padded_chunk)?;
+        }
+
 
         // Compute the norm of the entries and ensure that it is the same as the
         // submitted norm. There are exactly enough bits such that a submitted
@@ -481,12 +501,9 @@ where
 
 
 
-        let num_of_clients = F::valid_integer_try_from(num_shares)?;
         let constant_part = F::from(F::valid_integer_try_from(
             1 << (2 * self.bits_per_entry - 2),
         )?); // = 2^(2n-2)
-        let constant_part_multiplier = F::one() / F::from(num_of_clients);
-
         let f_entries = F::from(F::valid_integer_try_from(self.entries)?);
 
         // let squaring_fun = |x| g[1].call(std::slice::from_ref(&x));
@@ -537,10 +554,15 @@ where
         // computed via
         // `gadget.arity() + gadget.degree()
         //   * ((1 + gadget.calls()).next_power_of_two() - 1) + 1;`
-        let proof_gadget_0 = 1
-            + 2 * ((1 + (self.bits_per_entry * self.entries + self.bits_for_norm))
-                .next_power_of_two()
-                - 1)
+        // let proof_gadget_0 = 1
+        //     + 2 * ((1 + (self.bits_per_entry * self.entries + self.bits_for_norm))
+        //         .next_power_of_two()
+        //         - 1)
+        //     + 1;
+
+        // XXX
+        let proof_gadget_0 = (self.gadget0_chunk_len * 2)
+            + 3 * ((1 + self.gadget0_calls).next_power_of_two() - 1)
             + 1;
         // let proof_gadget_1 = self.entries + 2 * ((1 + self.entries).next_power_of_two() - 1) + 1;
 
@@ -557,7 +579,7 @@ where
     fn verifier_len(&self) -> usize {
         // self.entries + 4
 
-        4 + self.gadget1_chunk_len
+        self.gadget0_chunk_len * 2 + self.gadget1_chunk_len + 3
 
         // self.gadget0_chunk_len * 2 + 4
     }
@@ -573,7 +595,7 @@ where
     fn prove_rand_len(&self) -> usize {
         // self.entries + 1
 
-        1 + self.gadget1_chunk_len
+        self.gadget0_chunk_len * 2 + self.gadget1_chunk_len
     }
 
     fn query_rand_len(&self) -> usize {
@@ -635,6 +657,7 @@ mod tests {
             FixedI16<U15>,
             TestField,
             ParallelSum<TestField, PolyEval<TestField>>,
+            ParallelSum<TestField, BlindPolyEval<TestField>>,
         >;
         let vsum: TestType = FixedPointBoundedL2VecSumParallel::new(3).unwrap();
         let one = TestField::one();
@@ -775,6 +798,7 @@ mod tests {
             FixedI128<U127>,
             TestField,
             ParallelSum<TestField, PolyEval<TestField>>,
+            ParallelSum<TestField, BlindPolyEval<TestField>>,
         >>::new(3)
         .unwrap_err();
         // vector too large
@@ -784,6 +808,7 @@ mod tests {
             FixedI16<U14>,
             TestField,
             ParallelSum<TestField, PolyEval<TestField>>,
+            ParallelSum<TestField, BlindPolyEval<TestField>>,
         >>::new(3)
         .unwrap_err();
     }

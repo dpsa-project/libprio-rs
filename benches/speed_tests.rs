@@ -295,6 +295,7 @@ pub fn prio3_client(c: &mut Criterion) {
             FixedI16<U15>,
             Field64,
             ParallelSum<Field64, PolyEval<Field64>>,
+            ParallelSum<Field64, BlindPolyEval<Field64>>,
         > = FixedPointBoundedL2VecSumParallel::new(len).unwrap();
         let joint_rand = random_vector(bl2_vecsum.joint_rand_len()).unwrap();
         let prove_rand = random_vector(bl2_vecsum.prove_rand_len()).unwrap();
@@ -337,6 +338,7 @@ pub fn prio3_client(c: &mut Criterion) {
             FixedI16<U15>,
             Field64,
             ParallelSumMultithreaded<Field64, PolyEval<Field64>>,
+            ParallelSumMultithreaded<Field64, BlindPolyEval<Field64>>,
         > = FixedPointBoundedL2VecSumParallel::new(len).unwrap();
         let joint_rand = random_vector(bl2_vecsum.joint_rand_len()).unwrap();
         let prove_rand = random_vector(bl2_vecsum.prove_rand_len()).unwrap();
