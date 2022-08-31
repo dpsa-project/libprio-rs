@@ -36,7 +36,7 @@ use crate::field::{Field128, Field64};
 #[cfg(feature = "multithreaded")]
 use crate::flp::gadgets::ParallelSumMultithreaded;
 #[cfg(feature = "crypto-dependencies")]
-use crate::flp::gadgets::{BlindPolyEval, PolyEval, ParallelSum};
+use crate::flp::gadgets::{BlindPolyEval, ParallelSum, PolyEval};
 use crate::flp::types::fixedpoint_l2::FixedPointBoundedL2VecSum;
 use crate::flp::types::fixedpoint_l2_parallel::FixedPointBoundedL2VecSumParallel;
 #[cfg(feature = "crypto-dependencies")]

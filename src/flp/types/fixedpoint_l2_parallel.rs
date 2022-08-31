@@ -189,6 +189,13 @@ pub struct FixedPointBoundedL2VecSumParallel<
     // range/position constants
     range_norm_begin: usize,
     range_norm_end: usize,
+
+    // XXX
+    gadget0_calls: usize,
+    gadget0_chunk_len: usize,
+
+    gadget1_calls: usize,
+    gadget1_chunk_len: usize,
 }
 
 impl<T: Fixed, F: FieldElement, S: ParallelSumGadget<F, PolyEval<F>>>
@@ -253,6 +260,21 @@ impl<T: Fixed, F: FieldElement, S: ParallelSumGadget<F, PolyEval<F>>>
         let linear_part = F::valid_integer_try_from(1 << (bits_per_entry))?; // = 2^n
         let norm_summand_poly = vec![F::zero(), F::from(linear_part), F::one()];
 
+        // XXX
+        let len0 = bits_per_entry * entries + bits_for_norm;
+        let gadget0_chunk_len = std::cmp::max(1, (len0 as f64).sqrt() as usize);
+        let mut gadget0_calls = len0 / gadget0_chunk_len;
+        if len0 % gadget0_chunk_len != 0 {
+            gadget0_calls += 1;
+        }
+
+        let len1 = entries;
+        let gadget1_chunk_len = std::cmp::max(1, (len1 as f64).sqrt() as usize);
+        let mut gadget1_calls = len1 / gadget1_chunk_len;
+        if len1 % gadget1_chunk_len != 1 {
+            gadget1_calls += 1;
+        }
+
         Ok(Self {
             bits_per_entry,
             entries,
@@ -266,6 +288,12 @@ impl<T: Fixed, F: FieldElement, S: ParallelSumGadget<F, PolyEval<F>>>
             // range constants
             range_norm_begin: entries * bits_per_entry,
             range_norm_end: entries * bits_per_entry + bits_for_norm,
+
+            // XXX
+            gadget0_calls,
+            gadget0_chunk_len,
+            gadget1_calls,
+            gadget1_chunk_len,
         })
     }
 }
@@ -286,6 +314,12 @@ impl<T: Fixed, F: FieldElement, S: ParallelSumGadget<F, PolyEval<F>>> Clone
             // range constants
             range_norm_begin: self.range_norm_begin,
             range_norm_end: self.range_norm_end,
+
+            // XXX
+            gadget0_calls: self.gadget0_calls,
+            gadget0_chunk_len: self.gadget0_chunk_len,
+            gadget1_calls: self.gadget1_calls,
+            gadget1_chunk_len: self.gadget1_chunk_len,
         }
     }
 }
@@ -362,8 +396,8 @@ where
         // This gadget computes the square of a field element.
         // It is called on each entry during norm computation.
         let gadget1 = S::new(
-            PolyEval::new(self.norm_summand_poly.clone(), self.entries),
-            self.entries,
+            PolyEval::new(self.norm_summand_poly.clone(), self.gadget1_calls),
+            self.gadget1_chunk_len,
         );
 
         let res: Vec<Box<dyn Gadget<F>>> = vec![Box::new(gadget0), Box::new(gadget1)];
@@ -419,7 +453,33 @@ where
             .collect();
 
         // run parallel sum gadget
-        let sum_of_summands_without_constant_part = g[1].call(&decoded_entries?)?;
+        let sum_of_summands_without_constant_part = {
+            let mut outp = F::zero();
+            let mut padded_chunk = vec![F::zero(); self.gadget1_chunk_len];
+
+            for chunk in decoded_entries?.chunks(self.gadget1_chunk_len) {
+                let d = chunk.len();
+                for i in 0..self.gadget1_chunk_len {
+                    if i < d {
+                        padded_chunk[i] = chunk[i];
+                    } else {
+                        // If the chunk is smaller than the chunk length, then copy the last element of
+                        // the chunk into the remaining slots.
+                        padded_chunk[i] = F::zero();
+                    }
+                }
+
+                outp += g[1].call(&padded_chunk)?;
+            }
+
+            outp
+        };
+
+
+        // let sum_of_summands_without_constant_part = g[1].call(&decoded_entries?)?;
+
+
+
 
         let num_of_clients = F::valid_integer_try_from(num_shares)?;
         let constant_part = F::from(F::valid_integer_try_from(
@@ -477,16 +537,29 @@ where
         // computed via
         // `gadget.arity() + gadget.degree()
         //   * ((1 + gadget.calls()).next_power_of_two() - 1) + 1;`
-        let proof_gadget_0 = 1 + 2 *
-            ((1 + (self.bits_per_entry * self.entries + self.bits_for_norm)).next_power_of_two()
+        let proof_gadget_0 = 1
+            + 2 * ((1 + (self.bits_per_entry * self.entries + self.bits_for_norm))
+                .next_power_of_two()
                 - 1)
             + 1;
-        let proof_gadget_1 = self.entries + 2 * ((1 + self.entries).next_power_of_two() - 1) + 1;
+        // let proof_gadget_1 = self.entries + 2 * ((1 + self.entries).next_power_of_two() - 1) + 1;
+
+        // XXX
+        let proof_gadget_1 = (self.gadget1_chunk_len)
+            + 2 * ((1 + self.gadget1_calls).next_power_of_two() - 1)
+            + 1;
+
+        // println!("len0: {proof_gadget_0}, len1: {proof_gadget_1}");
+
         proof_gadget_0 + proof_gadget_1
     }
 
     fn verifier_len(&self) -> usize {
-        self.entries + 4
+        // self.entries + 4
+
+        4 + self.gadget1_chunk_len
+
+        // self.gadget0_chunk_len * 2 + 4
     }
 
     fn output_len(&self) -> usize {
@@ -498,7 +571,9 @@ where
     }
 
     fn prove_rand_len(&self) -> usize {
-        self.entries + 1
+        // self.entries + 1
+
+        1 + self.gadget1_chunk_len
     }
 
     fn query_rand_len(&self) -> usize {

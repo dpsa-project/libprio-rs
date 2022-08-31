@@ -435,6 +435,9 @@ where
                 - 1)
             + 2;
         let proof_gadget_1 = 2 * ((1 + self.entries).next_power_of_two() - 1) + 2;
+
+        // println!("len0: {proof_gadget_0}, len1: {proof_gadget_1}");
+
         proof_gadget_0 + proof_gadget_1
     }
 
