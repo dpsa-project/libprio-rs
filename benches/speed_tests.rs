@@ -2,6 +2,8 @@
 
 use criterion::{criterion_group, criterion_main, Criterion};
 
+use fixed::types::extra::U15;
+use fixed::FixedI16;
 use fixed_macro::fixed;
 use prio::benchmarked::*;
 #[cfg(feature = "prio2")]
@@ -12,6 +14,7 @@ use prio::encrypt::PublicKey;
 use prio::field::{random_vector, Field128 as F, Field64, FieldElement};
 #[cfg(feature = "multithreaded")]
 use prio::flp::gadgets::ParallelSumMultithreaded;
+use prio::flp::types::fixedpoint_l2::FixedPointBoundedL2VecSum;
 use prio::flp::{
     gadgets::{BlindPolyEval, Mul, ParallelSum, PolyEval},
     types::CountVec,
@@ -21,11 +24,6 @@ use prio::flp::{
 use prio::server::{generate_verification_message, ValidationMemory};
 use prio::vdaf::prio3::Prio3;
 use prio::vdaf::{prio3::Prio3InputShare, Client as Prio3Client};
-
-use fixed::types::extra::U15;
-use fixed::FixedI16;
-use prio::flp::types::fixedpoint_l2::FixedPointBoundedL2VecSum;
-use prio::flp::types::fixedpoint_l2_parallel::FixedPointBoundedL2VecSumParallel;
 
 /// This benchmark compares the performance of recursive and iterative FFT.
 pub fn fft(c: &mut Criterion) {
@@ -255,48 +253,12 @@ pub fn prio3_client(c: &mut Criterion) {
     }
 
     {
-        let bl2_vecsum: FixedPointBoundedL2VecSum<FixedI16<U15>, Field64> =
-            FixedPointBoundedL2VecSum::new(len).unwrap();
-        let joint_rand = random_vector(bl2_vecsum.joint_rand_len()).unwrap();
-        let prove_rand = random_vector(bl2_vecsum.prove_rand_len()).unwrap();
-        let input = vec![Field64::zero(); 16030];
-        let proof = bl2_vecsum
-            .prove(input.as_slice(), &prove_rand, &joint_rand)
-            .unwrap();
-
-        println!("prio3 fixedpoint16 boundedl2 proof size={}\n", proof.len());
-
-        c.bench_function(
-            &format!("prio3 fixedpoint16 boundedl2 prove, size={}", len),
-            |b| {
-                b.iter(|| {
-                    let prove_rand = random_vector(bl2_vecsum.prove_rand_len()).unwrap();
-                    bl2_vecsum
-                        .prove(input.as_slice(), &prove_rand, &joint_rand)
-                        .unwrap();
-                })
-            },
-        );
-
-        c.bench_function(
-            &format!("prio3 fixedpoint16 boundedl2 query, size={}", len),
-            |b| {
-                b.iter(|| {
-                    let query_rand = random_vector(bl2_vecsum.query_rand_len()).unwrap();
-                    bl2_vecsum
-                        .query(input.as_slice(), &proof, &query_rand, &joint_rand, 1)
-                        .unwrap();
-                })
-            },
-        );
-    }
-    {
-        let bl2_vecsum: FixedPointBoundedL2VecSumParallel<
+        let bl2_vecsum: FixedPointBoundedL2VecSum<
             FixedI16<U15>,
             Field64,
             ParallelSum<Field64, PolyEval<Field64>>,
             ParallelSum<Field64, BlindPolyEval<Field64>>,
-        > = FixedPointBoundedL2VecSumParallel::new(len).unwrap();
+        > = FixedPointBoundedL2VecSum::new(len).unwrap();
         let joint_rand = random_vector(bl2_vecsum.joint_rand_len()).unwrap();
         let prove_rand = random_vector(bl2_vecsum.prove_rand_len()).unwrap();
         let input = vec![Field64::zero(); 16030];
@@ -333,13 +295,14 @@ pub fn prio3_client(c: &mut Criterion) {
             },
         );
     }
+
     {
-        let bl2_vecsum: FixedPointBoundedL2VecSumParallel<
+        let bl2_vecsum: FixedPointBoundedL2VecSum<
             FixedI16<U15>,
             Field64,
             ParallelSumMultithreaded<Field64, PolyEval<Field64>>,
             ParallelSumMultithreaded<Field64, BlindPolyEval<Field64>>,
-        > = FixedPointBoundedL2VecSumParallel::new(len).unwrap();
+        > = FixedPointBoundedL2VecSum::new(len).unwrap();
         let joint_rand = random_vector(bl2_vecsum.joint_rand_len()).unwrap();
         let prove_rand = random_vector(bl2_vecsum.prove_rand_len()).unwrap();
         let input = vec![Field64::zero(); 16030];
@@ -382,30 +345,9 @@ pub fn prio3_client(c: &mut Criterion) {
             },
         );
     }
+
     {
         let prio3 = Prio3::new_aes128_fixedpoint16_boundedl2_vec_sum(num_shares, len).unwrap();
-
-        println!("successfully constructed.");
-        let fp_num = fixed!(0.0001: I1F15);
-        let measurement = vec![fp_num; len];
-        println!(
-            "prio3 fixedpoint16 boundedl2 vec ({} entries) size = {}",
-            len,
-            prio3_input_share_size(&prio3.shard(&measurement).unwrap())
-        );
-        c.bench_function(
-            &format!("prio3 fixedpoint16 boundedl2 vec ({} entries)", len),
-            |b| {
-                b.iter(|| {
-                    prio3.shard(&measurement).unwrap();
-                })
-            },
-        );
-    }
-
-    {
-        let prio3 =
-            Prio3::new_aes128_fixedpoint16_boundedl2_vec_sum_parallel(num_shares, len).unwrap();
         println!("successfully constructed.");
         let fp_num = fixed!(0.0001: I1F15);
         let measurement = vec![fp_num; len];
@@ -429,10 +371,8 @@ pub fn prio3_client(c: &mut Criterion) {
 
     #[cfg(feature = "multithreaded")]
     {
-        let prio3 = Prio3::new_aes128_fixedpoint16_boundedl2_vec_sum_parallel_multithreaded(
-            num_shares, len,
-        )
-        .unwrap();
+        let prio3 = Prio3::new_aes128_fixedpoint16_boundedl2_vec_sum_multithreaded(num_shares, len)
+            .unwrap();
         println!("successfully constructed.");
         let fp_num = fixed!(0.0001: I1F15);
         let measurement = vec![fp_num; len];

@@ -153,8 +153,7 @@
 pub mod compatible_float;
 
 use crate::field::{FieldElement, FieldElementExt};
-use crate::flp::gadgets::PolyEval;
-use crate::flp::types::call_gadget_on_vec_entries;
+use crate::flp::gadgets::{BlindPolyEval, ParallelSumGadget, PolyEval};
 use crate::flp::types::fixedpoint_l2::compatible_float::CompatibleFloat;
 use crate::flp::{FlpError, Gadget, Type};
 use crate::polynomial::poly_range_check;
@@ -175,20 +174,37 @@ use std::{convert::TryInto, fmt::Debug, marker::PhantomData};
 /// to be chosen for `F`. For a `n`-bit fixed point type and a `d`-dimensional vector, the field
 /// modulus needs to be larger than `d * 2^(2n-2)` so there are no overflows during norm validity
 /// computation.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FixedPointBoundedL2VecSum<T: Fixed, F: FieldElement> {
+#[derive(Debug, PartialEq, Eq)]
+pub struct FixedPointBoundedL2VecSum<
+    T: Fixed,
+    F: FieldElement,
+    SPoly: ParallelSumGadget<F, PolyEval<F>>,
+    SBlindPoly: ParallelSumGadget<F, BlindPolyEval<F>>,
+> {
     bits_per_entry: usize,
     entries: usize,
     bits_for_norm: usize,
     range_01_checker: Vec<F>,
-    square_computer: Vec<F>,
-    phantom: PhantomData<T>,
+    norm_summand_poly: Vec<F>,
+    phantom: PhantomData<(T, SPoly, SBlindPoly)>,
     // range/position constants
     range_norm_begin: usize,
     range_norm_end: usize,
+
+    // configuration of parallel sum gadgets
+    gadget0_calls: usize,
+    gadget0_chunk_len: usize,
+    gadget1_calls: usize,
+    gadget1_chunk_len: usize,
 }
 
-impl<T: Fixed, F: FieldElement> FixedPointBoundedL2VecSum<T, F> {
+impl<
+        T: Fixed,
+        F: FieldElement,
+        SPoly: ParallelSumGadget<F, PolyEval<F>>,
+        SBlindPoly: ParallelSumGadget<F, BlindPolyEval<F>>,
+    > FixedPointBoundedL2VecSum<T, F, SPoly, SBlindPoly>
+{
     /// Return a new [`FixedPointBoundedL2VecSum`] type parameter. Each value of this type is a
     /// fixed point vector with `entries` entries.
     pub fn new(entries: usize) -> Result<Self, FlpError> {
@@ -243,26 +259,83 @@ impl<T: Fixed, F: FieldElement> FixedPointBoundedL2VecSum<T, F> {
         };
         F::valid_integer_try_from(usize_max_norm_value)?;
 
+        // Construct the polynomial that computes a part of the norm for a
+        // single vector entry.
+        let linear_part = F::valid_integer_try_from(1 << (bits_per_entry))?; // = 2^n
+        let norm_summand_poly = vec![F::zero(), F::from(linear_part), F::one()];
+
+        // Compute chunk length and number of calls for parallel sum gadgets.
+        let len0 = bits_per_entry * entries + bits_for_norm;
+        let gadget0_chunk_len = std::cmp::max(1, (len0 as f64).sqrt() as usize);
+        let mut gadget0_calls = len0 / gadget0_chunk_len;
+        if len0 % gadget0_chunk_len != 0 {
+            gadget0_calls += 1;
+        }
+
+        let len1 = entries;
+        let gadget1_chunk_len = std::cmp::max(1, (len1 as f64).sqrt() as usize);
+        let mut gadget1_calls = len1 / gadget1_chunk_len;
+        if len1 % gadget1_chunk_len != 1 {
+            gadget1_calls += 1;
+        }
+
         Ok(Self {
             bits_per_entry,
             entries,
             bits_for_norm,
             range_01_checker: poly_range_check(0, 2),
             // polynomial: 0 + 0 * x + 1 * x^2
-            square_computer: vec![F::zero(), F::zero(), F::one()],
+            norm_summand_poly,
             phantom: PhantomData,
 
             // range constants
             range_norm_begin: entries * bits_per_entry,
             range_norm_end: entries * bits_per_entry + bits_for_norm,
+
+            // configuration of parallel sum gadgets
+            gadget0_calls,
+            gadget0_chunk_len,
+            gadget1_calls,
+            gadget1_chunk_len,
         })
     }
 }
 
-impl<T, F> Type for FixedPointBoundedL2VecSum<T, F>
+impl<
+        T: Fixed,
+        F: FieldElement,
+        SPoly: ParallelSumGadget<F, PolyEval<F>>,
+        SBlindPoly: ParallelSumGadget<F, BlindPolyEval<F>>,
+    > Clone for FixedPointBoundedL2VecSum<T, F, SPoly, SBlindPoly>
+{
+    fn clone(&self) -> Self {
+        Self {
+            bits_per_entry: self.bits_per_entry,
+            entries: self.entries,
+            bits_for_norm: self.bits_for_norm,
+            range_01_checker: self.range_01_checker.clone(),
+            norm_summand_poly: self.norm_summand_poly.clone(),
+            phantom: PhantomData,
+
+            // range constants
+            range_norm_begin: self.range_norm_begin,
+            range_norm_end: self.range_norm_end,
+
+            // configuration of parallel sum gadgets
+            gadget0_calls: self.gadget0_calls,
+            gadget0_chunk_len: self.gadget0_chunk_len,
+            gadget1_calls: self.gadget1_calls,
+            gadget1_chunk_len: self.gadget1_chunk_len,
+        }
+    }
+}
+
+impl<T, F, SPoly, SBlindPoly> Type for FixedPointBoundedL2VecSum<T, F, SPoly, SBlindPoly>
 where
     T: Fixed + CompatibleFloat<F>,
     F: FieldElement,
+    SPoly: ParallelSumGadget<F, PolyEval<F>> + Eq + 'static,
+    SBlindPoly: ParallelSumGadget<F, BlindPolyEval<F>> + Eq + 'static,
 {
     type Measurement = Vec<T>;
     type AggregateResult = Vec<<T as CompatibleFloat<F>>::Float>;
@@ -322,14 +395,17 @@ where
         // This gadget checks that a field element is zero or one.
         // It is called for all the "bits" of the encoded entries
         // and of the encoded norm.
-        let gadget0 = PolyEval::new(
-            self.range_01_checker.clone(),
-            self.bits_per_entry * self.entries + self.bits_for_norm,
+        let gadget0 = SBlindPoly::new(
+            BlindPolyEval::new(self.range_01_checker.clone(), self.gadget0_calls),
+            self.gadget0_chunk_len,
         );
 
         // This gadget computes the square of a field element.
         // It is called on each entry during norm computation.
-        let gadget1 = PolyEval::new(self.square_computer.clone(), self.entries);
+        let gadget1 = SPoly::new(
+            PolyEval::new(self.norm_summand_poly.clone(), self.gadget1_calls),
+            self.gadget1_chunk_len,
+        );
 
         let res: Vec<Box<dyn Gadget<F>>> = vec![Box::new(gadget0), Box::new(gadget1)];
         res
@@ -344,6 +420,9 @@ where
     ) -> Result<F, FlpError> {
         self.valid_call_check(input, joint_rand)?;
 
+        let num_of_clients = F::valid_integer_try_from(num_shares)?;
+        let constant_part_multiplier = F::one() / F::from(num_of_clients);
+
         // Ensure that all submitted field elements are either 0 or 1.
         // This is done for:
         //  - all vector entries (each of them encoded in `self.bits_per_entry`
@@ -356,8 +435,25 @@ where
         // entries*bits_per_entry + bits_for_norm.
         //
         // Check that each element is a 0 or 1:
-        let range_check =
-            call_gadget_on_vec_entries(&mut g[0], &input[0..self.range_norm_end], joint_rand[0])?;
+        let mut r = joint_rand[0];
+        let mut range_check = F::zero();
+        let mut padded_chunk = vec![F::zero(); 2 * self.gadget0_chunk_len];
+        for chunk in input[..self.range_norm_end].chunks(self.gadget0_chunk_len) {
+            let d = chunk.len();
+            for i in 0..self.gadget0_chunk_len {
+                if i < d {
+                    padded_chunk[2 * i] = chunk[i];
+                } else {
+                    // If the chunk is smaller than the chunk length, then copy the last element of
+                    // the chunk into the remaining slots.
+                    padded_chunk[2 * i] = chunk[d - 1];
+                }
+                padded_chunk[2 * i + 1] = r * constant_part_multiplier;
+                r *= joint_rand[0];
+            }
+
+            range_check += g[0].call(&padded_chunk)?;
+        }
 
         // Compute the norm of the entries and ensure that it is the same as the
         // submitted norm. There are exactly enough bits such that a submitted
@@ -377,22 +473,41 @@ where
         //    which is the inverse of the numbers of clients.
         //  - `squaring_fun` is a function which calls the squaring gadget (and
         //    mutates it).
+
         let decoded_entries: Result<Vec<_>, _> = input[0..self.entries * self.bits_per_entry]
             .chunks(self.bits_per_entry)
             .map(F::decode_from_bitvector_representation)
             .collect();
 
-        let num_of_clients = F::valid_integer_try_from(num_shares)?;
-        let constant_part_multiplier = F::one() / F::from(num_of_clients);
+        // run parallel sum gadget
+        let sum_of_summands_without_constant_part = {
+            let mut outp = F::zero();
 
-        let squaring_fun = |x| g[1].call(std::slice::from_ref(&x));
+            for chunk in decoded_entries?.chunks(self.gadget1_chunk_len) {
+                let d = chunk.len();
 
-        let computed_norm = compute_norm_of_entries(
-            decoded_entries?,
-            self.bits_per_entry,
-            constant_part_multiplier,
-            squaring_fun,
-        )?;
+                if d == self.gadget1_chunk_len {
+                    outp += g[1].call(chunk)?;
+                } else {
+                    // If the chunk is smaller than the chunk length, extend
+                    // chunk with zeros.
+                    let mut padded_chunk = Vec::new();
+                    chunk.clone_into(&mut padded_chunk);
+                    padded_chunk.resize(self.gadget1_chunk_len, F::zero());
+                    outp += g[1].call(&padded_chunk)?;
+                }
+            }
+
+            outp
+        };
+
+        let constant_part = F::from(F::valid_integer_try_from(
+            1 << (2 * self.bits_per_entry - 2),
+        )?); // = 2^(2n-2)
+        let f_entries = F::from(F::valid_integer_try_from(self.entries)?);
+
+        let computed_norm = sum_of_summands_without_constant_part
+            + f_entries * constant_part * constant_part_multiplier;
 
         // The submitted norm is also decoded from its bit-encoding, and
         // compared with the computed norm.
@@ -430,19 +545,18 @@ where
         // computed via
         // `gadget.arity() + gadget.degree()
         //   * ((1 + gadget.calls()).next_power_of_two() - 1) + 1;`
-        let proof_gadget_0 = 2
-            * ((1 + (self.bits_per_entry * self.entries + self.bits_for_norm)).next_power_of_two()
-                - 1)
-            + 2;
-        let proof_gadget_1 = 2 * ((1 + self.entries).next_power_of_two() - 1) + 2;
 
-        // println!("len0: {proof_gadget_0}, len1: {proof_gadget_1}");
+        let proof_gadget_0 = (self.gadget0_chunk_len * 2)
+            + 3 * ((1 + self.gadget0_calls).next_power_of_two() - 1)
+            + 1;
+        let proof_gadget_1 =
+            (self.gadget1_chunk_len) + 2 * ((1 + self.gadget1_calls).next_power_of_two() - 1) + 1;
 
         proof_gadget_0 + proof_gadget_1
     }
 
     fn verifier_len(&self) -> usize {
-        5
+        self.gadget0_chunk_len * 2 + self.gadget1_chunk_len + 3
     }
 
     fn output_len(&self) -> usize {
@@ -454,7 +568,7 @@ where
     }
 
     fn prove_rand_len(&self) -> usize {
-        2
+        self.gadget0_chunk_len * 2 + self.gadget1_chunk_len
     }
 
     fn query_rand_len(&self) -> usize {
@@ -504,15 +618,21 @@ where
 mod tests {
     use super::*;
     use crate::field::{random_vector, Field64 as TestField};
+    use crate::flp::gadgets::ParallelSum;
     use crate::flp::types::test_utils::{flp_validity_test, ValidityTestCase};
     use fixed::types::extra::{U127, U14, U15};
     use fixed::{FixedI128, FixedI16};
     use fixed_macro::fixed;
 
     #[test]
-    fn test_bounded_fpvec_sum() {
-        let vsum: FixedPointBoundedL2VecSum<FixedI16<U15>, TestField> =
-            FixedPointBoundedL2VecSum::new(3).unwrap();
+    fn test_bounded_fpvec_sum_parallel() {
+        type TestType = FixedPointBoundedL2VecSum<
+            FixedI16<U15>,
+            TestField,
+            ParallelSum<TestField, PolyEval<TestField>>,
+            ParallelSum<TestField, BlindPolyEval<TestField>>,
+        >;
+        let vsum: TestType = FixedPointBoundedL2VecSum::new(3).unwrap();
         let one = TestField::one();
 
         let fp_4_inv = fixed!(0.25: I1F15);
@@ -647,10 +767,22 @@ mod tests {
 
         // invalid initialization
         // fixed point too large
-        <FixedPointBoundedL2VecSum<FixedI128<U127>, TestField>>::new(3).unwrap_err();
+        <FixedPointBoundedL2VecSum<
+            FixedI128<U127>,
+            TestField,
+            ParallelSum<TestField, PolyEval<TestField>>,
+            ParallelSum<TestField, BlindPolyEval<TestField>>,
+        >>::new(3)
+        .unwrap_err();
         // vector too large
-        <FixedPointBoundedL2VecSum<FixedI16<U15>, TestField>>::new(30000000000).unwrap_err();
+        <TestType>::new(30000000000).unwrap_err();
         // fixed point type has more than one int bit
-        <FixedPointBoundedL2VecSum<FixedI16<U14>, TestField>>::new(3).unwrap_err();
+        <FixedPointBoundedL2VecSum<
+            FixedI16<U14>,
+            TestField,
+            ParallelSum<TestField, PolyEval<TestField>>,
+            ParallelSum<TestField, BlindPolyEval<TestField>>,
+        >>::new(3)
+        .unwrap_err();
     }
 }
