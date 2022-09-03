@@ -103,17 +103,10 @@
 //!
 //! ### Differences in the computation because of distribution
 //!
-//! Computation of the norm in the validation circuit happens distributed, which
-//! means that every aggregator computes the circuit on an additive share of the
-//! client's actual vector entries and norm. This has the slight problem that
-//! the constant part of the computation done in `our_norm_on_encoded()` occurs
-//! `num_shares` times in the final aggregated result. The implementation
-//! of the norm computation, in `compute_norm_of_entries()`, has an additional
-//! parameter `constant_part_multiplier` which is set to `1/num_shares` when the
-//! norm is computed in the validation circuit.
-//! Something similar happens in the decoding of the aggregated result (in
-//! `decode_result()`), where instead of the `dec()` function from above, the
-//! following function is used:
+//! In `decode_result()`, what is decoded are not the submitted entries of a
+//! single client, but the sum of the the entries of all clients. We have to
+//! take this into account, and cannot directly use the `dec()` function from
+//! above. Instead we use:
 //! ```text
 //! dec'(x) = d * 2^(1-n) - c
 //! ```
@@ -261,9 +254,14 @@ impl<
 
         // Construct the polynomial that computes a part of the norm for a
         // single vector entry.
-        let linear_part = F::valid_integer_try_from(1 << (bits_per_entry))?; // = 2^n
-        // p(y) = y^2 - (2^n)*y
-        let norm_summand_poly = vec![F::zero(), -F::from(linear_part), F::one()];
+        //
+        // the linear part is 2^n,
+        // the constant part is 2^(2n-2),
+        // the polynomial is:
+        //   p(y) = 2^(2n-2) + -(2^n) * y + 1 * y^2
+        let linear_part = F::valid_integer_try_from(1 << (bits_per_entry))?;
+        let constant_part = F::from(F::valid_integer_try_from(1 << (2 * bits_per_entry - 2))?);
+        let norm_summand_poly = vec![constant_part, -F::from(linear_part), F::one()];
 
         // Compute chunk length and number of calls for parallel sum gadgets.
         let len0 = bits_per_entry * entries + bits_for_norm;
@@ -285,7 +283,6 @@ impl<
             entries,
             bits_for_norm,
             range_01_checker: poly_range_check(0, 2),
-            // polynomial: 0 + 0 * x + 1 * x^2
             norm_summand_poly,
             phantom: PhantomData,
 
@@ -363,8 +360,7 @@ where
         // (II) Vector norm.
         // Compute the norm of the input vector.
         let field_entries = integer_entries.iter().map(|&x| F::from(x));
-        let norm =
-            compute_norm_of_entries(field_entries, self.bits_per_entry, F::one(), |x| Ok(x * x))?;
+        let norm = compute_norm_of_entries(field_entries, self.bits_per_entry)?;
         let norm_int = <F as FieldElement>::Integer::from(norm);
 
         // Write the norm into the `entries` vector.
@@ -421,8 +417,8 @@ where
     ) -> Result<F, FlpError> {
         self.valid_call_check(input, joint_rand)?;
 
-        let num_of_shares = F::valid_integer_try_from(num_shares)?;
-        let constant_part_multiplier = F::one() / F::from(num_of_shares);
+        let f_num_shares = F::from(F::valid_integer_try_from(num_shares)?);
+        let constant_part_multiplier = F::one() / f_num_shares;
 
         // Ensure that all submitted field elements are either 0 or 1.
         // This is done for:
@@ -434,6 +430,10 @@ where
         // Since all input vector entry (field-)bits, as well as the norm bits,
         // are contiguous, we do the check directly for all bits from 0 to
         // entries*bits_per_entry + bits_for_norm.
+        //
+        // In order to keep the proof size down, this is done using the
+        // `ParallelSum` gadget. For a similar application see the `CountVec`
+        // prio3 type.
         //
         // Check that each element is a 0 or 1:
         let mut r = joint_rand[0];
@@ -462,26 +462,23 @@ where
         // comparing submitted with actual, we make sure the actual norm is
         // valid.
         //
-        // Computing the norm is done using `compute_norm_of_entries()`. This
-        // needs some setup, in particular there is:
-        //  - `decoded_entries` is an iterator over `self.entries` many field
-        //    elements representing the vector entries
-        //  - `constant_part_multiplier` is required because this validation
-        //    function is executed by each aggregator and the result is summed.
-        //    In the computation there is a constant part which would be added
-        //    `num_of_shares` times, even though we only want it to be added
-        //    once. To mitigate, we pass in the `constant_part_multiplier`,
-        //    which is the inverse of the numbers of clients.
-        //  - `squaring_fun` is a function which calls the squaring gadget (and
-        //    mutates it).
-
+        // The function to compute here (see explanatory comment at the top) is
+        //   norm(ys) = sum_{y in ys} y^2 - (2^n)*y + 2^(2n-2)
+        //
+        // This is done by the `ParallelSum` gadget `g[1]`, which evaluates the
+        // inner polynomial on each (decoded) vector entry, and then sums the
+        // results. Note that the gadget is not called on the whole vector at
+        // once, but sequentially on chunks of size `self.gadget1_chunk_len` of
+        // it. The results of these calls are accumulated in the `outp` variable.
+        //
+        // decode the bit-encoded entries into elements in the range [0,2^n):
         let decoded_entries: Result<Vec<_>, _> = input[0..self.entries * self.bits_per_entry]
             .chunks(self.bits_per_entry)
             .map(F::decode_from_bitvector_representation)
             .collect();
 
-        // run parallel sum gadget
-        let sum_of_summands_without_constant_part = {
+        // run parallel sum gadget on the decoded entries
+        let computed_norm = {
             let mut outp = F::zero();
 
             for chunk in decoded_entries?.chunks(self.gadget1_chunk_len) {
@@ -501,14 +498,6 @@ where
 
             outp
         };
-
-        let constant_part = F::from(F::valid_integer_try_from(
-            1 << (2 * self.bits_per_entry - 2),
-        )?); // = 2^(2n-2)
-        let f_entries = F::from(F::valid_integer_try_from(self.entries)?);
-
-        let computed_norm = sum_of_summands_without_constant_part
-            + f_entries * constant_part * constant_part_multiplier;
 
         // The submitted norm is also decoded from its bit-encoding, and
         // compared with the computed norm.
@@ -581,21 +570,16 @@ where
 ///
 /// * `entries` - Iterator over the vector entries.
 /// * `bits_per_entry` - Number of bits one entry has.
-/// * `constant_part_multiplier` - A share of 1.
-/// * `sq` - The function used to compute the square of an entry.
-fn compute_norm_of_entries<F, Fs, SquareFun>(
-    entries: Fs,
-    bits_per_entry: usize,
-    constant_part_multiplier: F,
-    mut sq: SquareFun,
-) -> Result<F, FlpError>
+fn compute_norm_of_entries<F, Fs>(entries: Fs, bits_per_entry: usize) -> Result<F, FlpError>
 where
     F: FieldElement,
     Fs: IntoIterator<Item = F>,
-    SquareFun: FnMut(F) -> Result<F, FlpError>,
 {
-    // Check out the Norm computation bit in the explanatory comment block
-    // to understand what this function does.
+    // The value that is computed here is:
+    //    sum_{y in entries} 2^(2n-2) + -(2^n) * y + 1 * y^2
+    //
+    // Check out the norm computation bit in the explanatory comment block for
+    // more information.
 
     // Initialize `norm_accumulator`.
     let mut norm_accumulator = F::zero();
@@ -605,11 +589,8 @@ where
     let linear_part = F::valid_integer_try_from(1 << (bits_per_entry))?; // = 2^n
 
     // Add term for a given `entry` to `norm_accumulator`.
-    // `constant_part` is distributed among clients for verification, so we
-    // multiply with a share of 1.
     for entry in entries.into_iter() {
-        let summand = sq(entry)? + F::from(constant_part) * constant_part_multiplier
-            - F::from(linear_part) * (entry);
+        let summand = entry * entry + F::from(constant_part) - F::from(linear_part) * (entry);
         norm_accumulator += summand;
     }
     Ok(norm_accumulator)
@@ -728,11 +709,7 @@ mod tests {
                 TestField::from(32768),
                 TestField::from(32768),
             ];
-            let norm =
-                compute_norm_of_entries(entries, vsum.bits_per_entry, TestField::one(), |x| {
-                    Ok(x * x)
-                })
-                .unwrap();
+            let norm = compute_norm_of_entries(entries, vsum.bits_per_entry).unwrap();
             let expected_norm = TestField::from(0);
             assert_eq!(norm, expected_norm);
         }
@@ -745,22 +722,14 @@ mod tests {
                 TestField::from(65535),
                 TestField::from(65535),
             ];
-            let norm =
-                compute_norm_of_entries(entries, vsum.bits_per_entry, TestField::one(), |x| {
-                    Ok(x * x)
-                })
-                .unwrap();
+            let norm = compute_norm_of_entries(entries, vsum.bits_per_entry).unwrap();
             let expected_norm = TestField::from(3221028867);
             // = 3 * ((2^16-1)^2 - (2^16-1)*2^16 + 2^(2*16-2))
             assert_eq!(norm, expected_norm);
 
             // the smallest possible entries (0)
             let entries = vec![TestField::from(0), TestField::from(0), TestField::from(0)];
-            let norm =
-                compute_norm_of_entries(entries, vsum.bits_per_entry, TestField::one(), |x| {
-                    Ok(x * x)
-                })
-                .unwrap();
+            let norm = compute_norm_of_entries(entries, vsum.bits_per_entry).unwrap();
             let expected_norm = TestField::from(3221225472);
             // = 3 * (0^2 - 0*2^16 + 2^(2*16-2))
             assert_eq!(norm, expected_norm);
