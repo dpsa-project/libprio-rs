@@ -262,7 +262,8 @@ impl<
         // Construct the polynomial that computes a part of the norm for a
         // single vector entry.
         let linear_part = F::valid_integer_try_from(1 << (bits_per_entry))?; // = 2^n
-        let norm_summand_poly = vec![F::zero(), F::from(linear_part), F::one()];
+        // p(y) = y^2 - (2^n)*y
+        let norm_summand_poly = vec![F::zero(), -F::from(linear_part), F::one()];
 
         // Compute chunk length and number of calls for parallel sum gadgets.
         let len0 = bits_per_entry * entries + bits_for_norm;
@@ -420,8 +421,8 @@ where
     ) -> Result<F, FlpError> {
         self.valid_call_check(input, joint_rand)?;
 
-        let num_of_clients = F::valid_integer_try_from(num_shares)?;
-        let constant_part_multiplier = F::one() / F::from(num_of_clients);
+        let num_of_shares = F::valid_integer_try_from(num_shares)?;
+        let constant_part_multiplier = F::one() / F::from(num_of_shares);
 
         // Ensure that all submitted field elements are either 0 or 1.
         // This is done for:
@@ -468,7 +469,7 @@ where
         //  - `constant_part_multiplier` is required because this validation
         //    function is executed by each aggregator and the result is summed.
         //    In the computation there is a constant part which would be added
-        //    `num_of_clients` times, even though we only want it to be added
+        //    `num_of_shares` times, even though we only want it to be added
         //    once. To mitigate, we pass in the `constant_part_multiplier`,
         //    which is the inverse of the numbers of clients.
         //  - `squaring_fun` is a function which calls the squaring gadget (and
