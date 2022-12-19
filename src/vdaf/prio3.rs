@@ -1166,6 +1166,121 @@ mod tests {
         );
     }
 
+
+    fn test_fixed_long<Fx, PE, BPE, const LONG_SIZE: usize>(
+        fp_0: Fx,
+        prio3: Prio3<FixedPointBoundedL2VecSum<Fx, Field128, PE, BPE>, PrgAes128, 16>,
+    ) where
+        Fx: Fixed + CompatibleFloat<Field128> + std::ops::Neg<Output = Fx>,
+        PE: Eq + ParallelSumGadget<Field128, PolyEval<Field128>> + Clone + 'static,
+        BPE: Eq + ParallelSumGadget<Field128, BlindPolyEval<Field128>> + Clone + 'static,
+    {
+        let fp_vec_long = vec![fp_0; LONG_SIZE];
+
+        // very large vector
+        let fp_list4 = [fp_vec_long.clone(), fp_vec_long];
+        assert_eq!(
+            run_vdaf(&prio3, &(), fp_list4).unwrap(),
+            vec![0.0; LONG_SIZE],
+        );
+    }
+
+    fn test_fixed<Fx, PE, BPE>(
+        fp_4_inv: Fx,
+        fp_8_inv: Fx,
+        fp_16_inv: Fx,
+        prio3: Prio3<FixedPointBoundedL2VecSum<Fx, Field128, PE, BPE>, PrgAes128, 16>,
+    ) where
+        Fx: Fixed + CompatibleFloat<Field128> + std::ops::Neg<Output = Fx>,
+        PE: Eq + ParallelSumGadget<Field128, PolyEval<Field128>> + Clone + 'static,
+        BPE: Eq + ParallelSumGadget<Field128, BlindPolyEval<Field128>> + Clone + 'static,
+    {
+        let fp_vec1 = vec![fp_4_inv, fp_8_inv, fp_16_inv];
+        let fp_vec2 = vec![fp_4_inv, fp_8_inv, fp_16_inv];
+
+        let fp_vec3 = vec![-fp_4_inv, -fp_8_inv, -fp_16_inv];
+        let fp_vec4 = vec![-fp_4_inv, -fp_8_inv, -fp_16_inv];
+
+        let fp_vec5 = vec![fp_4_inv, -fp_8_inv, -fp_16_inv];
+        let fp_vec6 = vec![fp_4_inv, fp_8_inv, fp_16_inv];
+
+        // positive entries
+        let fp_list = [fp_vec1, fp_vec2];
+        assert_eq!(
+            run_vdaf(&prio3, &(), fp_list).unwrap(),
+            vec!(0.5, 0.25, 0.125),
+        );
+
+        // negative entries
+        let fp_list2 = [fp_vec3, fp_vec4];
+        assert_eq!(
+            run_vdaf(&prio3, &(), fp_list2).unwrap(),
+            vec!(-0.5, -0.25, -0.125),
+        );
+
+        // both
+        let fp_list3 = [fp_vec5, fp_vec6];
+        assert_eq!(
+            run_vdaf(&prio3, &(), fp_list3).unwrap(),
+            vec!(0.5, 0.0, 0.0),
+        );
+
+
+        let mut verify_key = [0; 16];
+        thread_rng().fill(&mut verify_key[..]);
+        let nonce = b"This is a good nonce.";
+
+        let (public_share, mut input_shares) =
+            prio3.shard(&vec![fp_4_inv, fp_8_inv, fp_16_inv]).unwrap();
+        input_shares[0].joint_rand_param.as_mut().unwrap().blind.0[0] ^= 255;
+        let result =
+            run_vdaf_prepare(&prio3, &verify_key, &(), nonce, public_share, input_shares);
+        assert_matches!(result, Err(VdafError::Uncategorized(_)));
+
+        let (public_share, mut input_shares) =
+            prio3.shard(&vec![fp_4_inv, fp_8_inv, fp_16_inv]).unwrap();
+        input_shares[0].joint_rand_param.as_mut().unwrap().seed_hint[0].0[0] ^= 255;
+        let result =
+            run_vdaf_prepare(&prio3, &verify_key, &(), nonce, public_share, input_shares);
+        assert_matches!(result, Err(VdafError::Uncategorized(_)));
+
+        let (public_share, mut input_shares) =
+            prio3.shard(&vec![fp_4_inv, fp_8_inv, fp_16_inv]).unwrap();
+        assert_matches!(input_shares[0].input_share, Share::Leader(ref mut data) => {
+            data[0] += Field128::one();
+        });
+        let result =
+            run_vdaf_prepare(&prio3, &verify_key, &(), nonce, public_share, input_shares);
+        assert_matches!(result, Err(VdafError::Uncategorized(_)));
+
+        let (public_share, mut input_shares) =
+            prio3.shard(&vec![fp_4_inv, fp_8_inv, fp_16_inv]).unwrap();
+        assert_matches!(input_shares[0].proof_share, Share::Leader(ref mut data) => {
+            data[0] += Field128::one();
+        });
+        let result =
+            run_vdaf_prepare(&prio3, &verify_key, &(), nonce, public_share, input_shares);
+        assert_matches!(result, Err(VdafError::Uncategorized(_)));
+
+        test_prepare_state_serialization(&prio3, &vec![fp_4_inv, fp_8_inv, fp_16_inv]).unwrap();
+    }
+
+    #[test]
+    fn test_prio3_bounded_fpvec_sum_long() {
+        type P<Fx> = Prio3Aes128FixedPointBoundedL2VecSum<Fx>;
+        let ctor_32 = P::<FixedI32<U31>>::new_aes128_fixedpoint_boundedl2_vec_sum;
+
+        {
+            // 32 bit fixedpoint, long vector
+            let fp32_0 = fixed!(0: I1F31);
+            {
+                const SIZE: usize = 1000;
+                let prio3_32 = ctor_32(2, SIZE).unwrap();
+                test_fixed_long::<_,_,_,SIZE>(fp32_0, prio3_32);
+            }
+        }
+    }
+
     #[test]
     fn test_prio3_bounded_fpvec_sum() {
         type P<Fx> = Prio3Aes128FixedPointBoundedL2VecSum<Fx>;
@@ -1237,84 +1352,8 @@ mod tests {
             }
         }
 
-        fn test_fixed<Fx, PE, BPE>(
-            fp_4_inv: Fx,
-            fp_8_inv: Fx,
-            fp_16_inv: Fx,
-            prio3: Prio3<FixedPointBoundedL2VecSum<Fx, Field128, PE, BPE>, PrgAes128, 16>,
-        ) where
-            Fx: Fixed + CompatibleFloat<Field128> + std::ops::Neg<Output = Fx>,
-            PE: Eq + ParallelSumGadget<Field128, PolyEval<Field128>> + Clone + 'static,
-            BPE: Eq + ParallelSumGadget<Field128, BlindPolyEval<Field128>> + Clone + 'static,
-        {
-            let fp_vec1 = vec![fp_4_inv, fp_8_inv, fp_16_inv];
-            let fp_vec2 = vec![fp_4_inv, fp_8_inv, fp_16_inv];
 
-            let fp_vec3 = vec![-fp_4_inv, -fp_8_inv, -fp_16_inv];
-            let fp_vec4 = vec![-fp_4_inv, -fp_8_inv, -fp_16_inv];
 
-            let fp_vec5 = vec![fp_4_inv, -fp_8_inv, -fp_16_inv];
-            let fp_vec6 = vec![fp_4_inv, fp_8_inv, fp_16_inv];
-
-            // positive entries
-            let fp_list = [fp_vec1, fp_vec2];
-            assert_eq!(
-                run_vdaf(&prio3, &(), fp_list).unwrap(),
-                vec!(0.5, 0.25, 0.125),
-            );
-
-            // negative entries
-            let fp_list2 = [fp_vec3, fp_vec4];
-            assert_eq!(
-                run_vdaf(&prio3, &(), fp_list2).unwrap(),
-                vec!(-0.5, -0.25, -0.125),
-            );
-
-            // both
-            let fp_list3 = [fp_vec5, fp_vec6];
-            assert_eq!(
-                run_vdaf(&prio3, &(), fp_list3).unwrap(),
-                vec!(0.5, 0.0, 0.0),
-            );
-
-            let mut verify_key = [0; 16];
-            thread_rng().fill(&mut verify_key[..]);
-            let nonce = b"This is a good nonce.";
-
-            let (public_share, mut input_shares) =
-                prio3.shard(&vec![fp_4_inv, fp_8_inv, fp_16_inv]).unwrap();
-            input_shares[0].joint_rand_param.as_mut().unwrap().blind.0[0] ^= 255;
-            let result =
-                run_vdaf_prepare(&prio3, &verify_key, &(), nonce, public_share, input_shares);
-            assert_matches!(result, Err(VdafError::Uncategorized(_)));
-
-            let (public_share, mut input_shares) =
-                prio3.shard(&vec![fp_4_inv, fp_8_inv, fp_16_inv]).unwrap();
-            input_shares[0].joint_rand_param.as_mut().unwrap().seed_hint[0].0[0] ^= 255;
-            let result =
-                run_vdaf_prepare(&prio3, &verify_key, &(), nonce, public_share, input_shares);
-            assert_matches!(result, Err(VdafError::Uncategorized(_)));
-
-            let (public_share, mut input_shares) =
-                prio3.shard(&vec![fp_4_inv, fp_8_inv, fp_16_inv]).unwrap();
-            assert_matches!(input_shares[0].input_share, Share::Leader(ref mut data) => {
-                data[0] += Field128::one();
-            });
-            let result =
-                run_vdaf_prepare(&prio3, &verify_key, &(), nonce, public_share, input_shares);
-            assert_matches!(result, Err(VdafError::Uncategorized(_)));
-
-            let (public_share, mut input_shares) =
-                prio3.shard(&vec![fp_4_inv, fp_8_inv, fp_16_inv]).unwrap();
-            assert_matches!(input_shares[0].proof_share, Share::Leader(ref mut data) => {
-                    data[0] += Field128::one();
-            });
-            let result =
-                run_vdaf_prepare(&prio3, &verify_key, &(), nonce, public_share, input_shares);
-            assert_matches!(result, Err(VdafError::Uncategorized(_)));
-
-            test_prepare_state_serialization(&prio3, &vec![fp_4_inv, fp_8_inv, fp_16_inv]).unwrap();
-        }
     }
 
     #[test]
