@@ -200,6 +200,9 @@ pub struct FixedPointBoundedL2VecSum<
     gadget0_chunk_len: usize,
     gadget1_calls: usize,
     gadget1_chunk_len: usize,
+
+    // configuration of dp noise
+    noise_parameter: u8,
 }
 
 impl<T, F, SPoly, SBlindPoly> FixedPointBoundedL2VecSum<T, F, SPoly, SBlindPoly>
@@ -212,7 +215,7 @@ where
 {
     /// Return a new [`FixedPointBoundedL2VecSum`] type parameter. Each value of this type is a
     /// fixed point vector with `entries` entries.
-    pub fn new(entries: usize) -> Result<Self, FlpError> {
+    pub fn new(entries: usize, noise_parameter: u8) -> Result<Self, FlpError> {
         // (0) initialize constants
         let fi_one = F::Integer::from(F::one());
         let fi_two = fi_one + fi_one;
@@ -314,6 +317,9 @@ where
             gadget0_chunk_len,
             gadget1_calls,
             gadget1_chunk_len,
+
+            // configuration of dp noise
+            noise_parameter,
         })
     }
 }
@@ -529,6 +535,12 @@ where
             decoded_vector.push(decoded);
         }
         Ok(decoded_vector)
+    }
+
+    fn add_noise(&self, aggregate_share: Vec<F>) -> Vec<F> {
+        let totally_random_noise : F = F::from(F::valid_integer_try_from(self.noise_parameter as usize).unwrap());
+
+        aggregate_share.iter().map(|x| *x + totally_random_noise).collect()
     }
 
     fn input_len(&self) -> usize {
@@ -770,7 +782,7 @@ mod tests {
             Field128,
             ParallelSum<Field128, PolyEval<Field128>>,
             ParallelSum<Field128, BlindPolyEval<Field128>>,
-        >>::new(3)
+        >>::new(3, 0)
         .unwrap_err();
         // vector too large
         <FixedPointBoundedL2VecSum<
@@ -778,7 +790,7 @@ mod tests {
             Field128,
             ParallelSum<Field128, PolyEval<Field128>>,
             ParallelSum<Field128, BlindPolyEval<Field128>>,
-        >>::new(30000000000)
+        >>::new(30000000000, 0)
         .unwrap_err();
         // fixed point type has more than one int bit
         <FixedPointBoundedL2VecSum<
@@ -786,7 +798,7 @@ mod tests {
             Field128,
             ParallelSum<Field128, PolyEval<Field128>>,
             ParallelSum<Field128, BlindPolyEval<Field128>>,
-        >>::new(3)
+        >>::new(3, 0)
         .unwrap_err();
     }
 }

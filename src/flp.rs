@@ -538,6 +538,12 @@ pub trait Type: Sized + Eq + Clone + Debug {
 
         Ok(())
     }
+
+    /// Optionally add noise to the aggregate share.
+    /// The result vector needs to have the same size as the argument vector.
+    fn add_noise(&self, aggregate_share: Vec<Self::Field>) -> Vec<Self::Field> {
+        aggregate_share
+    }
 }
 
 /// A gadget, a non-affine arithmetic circuit that is called when evaluating a validity circuit.

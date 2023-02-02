@@ -164,9 +164,10 @@ impl<Fx: Fixed + CompatibleFloat<Field128>> Prio3Aes128FixedPointBoundedL2VecSum
     pub fn new_aes128_fixedpoint_boundedl2_vec_sum(
         num_aggregators: u8,
         entries: usize,
+        noise_parameter: u8,
     ) -> Result<Self, VdafError> {
         check_num_aggregators(num_aggregators)?;
-        Prio3::new(num_aggregators, FixedPointBoundedL2VecSum::new(entries)?)
+        Prio3::new(num_aggregators, FixedPointBoundedL2VecSum::new(entries, noise_parameter)?)
     }
 }
 
@@ -987,6 +988,8 @@ where
             agg_share.accumulate(&output_share)?;
         }
 
+        agg_share.0 = self.typ.add_noise(agg_share.0);
+
         Ok(agg_share)
     }
 }
@@ -1190,7 +1193,7 @@ mod tests {
 
             // two aggregators, three entries per vector.
             {
-                let prio3_16 = ctor_16(2, 3).unwrap();
+                let prio3_16 = ctor_16(2, 3, 0).unwrap();
                 test_fixed(fp16_4_inv, fp16_8_inv, fp16_16_inv, prio3_16);
             }
 
@@ -1208,7 +1211,7 @@ mod tests {
             let fp32_16_inv = fixed!(0.0625: I1F31);
 
             {
-                let prio3_32 = ctor_32(2, 3).unwrap();
+                let prio3_32 = ctor_32(2, 3, 0).unwrap();
                 test_fixed(fp32_4_inv, fp32_8_inv, fp32_16_inv, prio3_32);
             }
 
@@ -1226,7 +1229,7 @@ mod tests {
             let fp64_16_inv = fixed!(0.0625: I1F63);
 
             {
-                let prio3_64 = ctor_64(2, 3).unwrap();
+                let prio3_64 = ctor_64(2, 3, 0).unwrap();
                 test_fixed(fp64_4_inv, fp64_8_inv, fp64_16_inv, prio3_64);
             }
 
