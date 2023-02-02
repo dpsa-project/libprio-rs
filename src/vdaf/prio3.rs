@@ -197,9 +197,10 @@ impl<Fx: Fixed + CompatibleFloat<Field128>> Prio3Aes128FixedPointBoundedL2VecSum
     pub fn new_aes128_fixedpoint_boundedl2_vec_sum_multithreaded(
         num_aggregators: u8,
         entries: usize,
+        noise_parameter: usize,
     ) -> Result<Self, VdafError> {
         check_num_aggregators(num_aggregators)?;
-        Prio3::new(num_aggregators, FixedPointBoundedL2VecSum::new(entries)?)
+        Prio3::new(num_aggregators, FixedPointBoundedL2VecSum::new(entries, noise_parameter)?)
     }
 }
 
@@ -1199,7 +1200,7 @@ mod tests {
 
             #[cfg(feature = "multithreaded")]
             {
-                let prio3_16_mt = ctor_mt_16(2, 3).unwrap();
+                let prio3_16_mt = ctor_mt_16(2, 3, 0).unwrap();
                 test_fixed(fp16_4_inv, fp16_8_inv, fp16_16_inv, prio3_16_mt);
             }
         }
@@ -1217,7 +1218,7 @@ mod tests {
 
             #[cfg(feature = "multithreaded")]
             {
-                let prio3_32_mt = ctor_mt_32(2, 3).unwrap();
+                let prio3_32_mt = ctor_mt_32(2, 3, 0).unwrap();
                 test_fixed(fp32_4_inv, fp32_8_inv, fp32_16_inv, prio3_32_mt);
             }
         }
@@ -1235,7 +1236,7 @@ mod tests {
 
             #[cfg(feature = "multithreaded")]
             {
-                let prio3_64_mt = ctor_mt_64(2, 3).unwrap();
+                let prio3_64_mt = ctor_mt_64(2, 3, 0).unwrap();
                 test_fixed(fp64_4_inv, fp64_8_inv, fp64_16_inv, prio3_64_mt);
             }
         }
