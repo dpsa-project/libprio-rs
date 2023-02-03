@@ -538,9 +538,14 @@ where
     }
 
     fn add_noise(&self, aggregate_share: Vec<F>) -> Vec<F> {
+        println!("adding noise!");
+        println!("input vector is: {aggregate_share:?}");
+        println!("noise param is: {}", self.noise_parameter);
         let totally_random_noise : F = F::from(F::valid_integer_try_from(self.noise_parameter as usize).unwrap());
 
-        aggregate_share.iter().map(|x| *x + totally_random_noise).collect()
+        let res = aggregate_share.iter().map(|x| *x + totally_random_noise).collect();
+        println!("result vector is: {res:?}");
+        res
     }
 
     fn input_len(&self) -> usize {
@@ -671,7 +676,7 @@ mod tests {
             type Psb = ParallelSum<Field128, BlindPolyEval<Field128>>;
 
             let vsum: FixedPointBoundedL2VecSum<F, Field128, Ps, Psb> =
-                FixedPointBoundedL2VecSum::new(3).unwrap();
+                FixedPointBoundedL2VecSum::new(3, 0).unwrap();
             let one = Field128::one();
             // Round trip
             assert_eq!(
