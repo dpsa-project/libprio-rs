@@ -227,6 +227,11 @@ where
         agg_param: &Self::AggregationParam,
         output_shares: M,
     ) -> Result<Self::AggregateShare, VdafError>;
+
+    /// Do some postprocessing.
+    fn postprocess(&self, _agg_param: &Self::AggregationParam, agg_share: Self::AggregateShare) -> Result<Self::AggregateShare, VdafError> {
+        Ok(agg_share)
+    }
 }
 
 /// The Collector's role in the execution of a VDAF.

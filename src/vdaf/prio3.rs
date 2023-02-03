@@ -993,6 +993,14 @@ where
 
         Ok(agg_share)
     }
+
+    fn postprocess(&self, _agg_param: &Self::AggregationParam, mut agg_share: Self::AggregateShare) -> Result<Self::AggregateShare, VdafError> {
+        println!("running postprocess on agg_share!");
+
+        agg_share.0 = self.typ.add_noise(agg_share.0);
+
+        Ok(agg_share)
+    }
 }
 
 impl<T, P, const L: usize> Collector for Prio3<T, P, L>
