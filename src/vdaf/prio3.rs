@@ -38,6 +38,7 @@ use crate::field::{Field128, Field64};
 use crate::flp::gadgets::ParallelSumMultithreaded;
 #[cfg(feature = "crypto-dependencies")]
 use crate::flp::gadgets::{BlindPolyEval, ParallelSum, PolyEval};
+use crate::flp::types::fixedpoint_l2::NoiseParameterType;
 #[cfg(feature = "crypto-dependencies")]
 use crate::flp::types::fixedpoint_l2::compatible_float::CompatibleFloat;
 #[cfg(feature = "crypto-dependencies")]
@@ -164,7 +165,7 @@ impl<Fx: Fixed + CompatibleFloat<Field128>> Prio3Aes128FixedPointBoundedL2VecSum
     pub fn new_aes128_fixedpoint_boundedl2_vec_sum(
         num_aggregators: u8,
         entries: usize,
-        noise_parameter: u8,
+        noise_parameter: NoiseParameterType,
     ) -> Result<Self, VdafError> {
         check_num_aggregators(num_aggregators)?;
         Prio3::new(num_aggregators, FixedPointBoundedL2VecSum::new(entries, noise_parameter)?)
@@ -197,7 +198,7 @@ impl<Fx: Fixed + CompatibleFloat<Field128>> Prio3Aes128FixedPointBoundedL2VecSum
     pub fn new_aes128_fixedpoint_boundedl2_vec_sum_multithreaded(
         num_aggregators: u8,
         entries: usize,
-        noise_parameter: u8,
+        noise_parameter: NoiseParameterType,
     ) -> Result<Self, VdafError> {
         check_num_aggregators(num_aggregators)?;
         Prio3::new(num_aggregators, FixedPointBoundedL2VecSum::new(entries, noise_parameter)?)
@@ -994,6 +995,7 @@ where
         Ok(agg_share)
     }
 
+
     fn postprocess(&self, _agg_param: &Self::AggregationParam, mut agg_share: Self::AggregateShare) -> Result<Self::AggregateShare, VdafError> {
         println!("running postprocess on agg_share!");
 
@@ -1073,6 +1075,7 @@ fn check_num_aggregators(num_aggregators: u8) -> Result<(), VdafError> {
 mod tests {
     use super::*;
     use crate::flp::gadgets::ParallelSumGadget;
+    use crate::flp::types::fixedpoint_l2::noise_parameter_no_noise;
     use crate::vdaf::{run_vdaf, run_vdaf_prepare};
     use assert_matches::assert_matches;
     use fixed::types::extra::{U15, U31, U63};
@@ -1202,13 +1205,13 @@ mod tests {
 
             // two aggregators, three entries per vector.
             {
-                let prio3_16 = ctor_16(2, 3, 0).unwrap();
+                let prio3_16 = ctor_16(2, 3, noise_parameter_no_noise).unwrap();
                 test_fixed(fp16_4_inv, fp16_8_inv, fp16_16_inv, prio3_16);
             }
 
             #[cfg(feature = "multithreaded")]
             {
-                let prio3_16_mt = ctor_mt_16(2, 3, 0).unwrap();
+                let prio3_16_mt = ctor_mt_16(2, 3, noise_parameter_no_noise).unwrap();
                 test_fixed(fp16_4_inv, fp16_8_inv, fp16_16_inv, prio3_16_mt);
             }
         }
@@ -1220,13 +1223,13 @@ mod tests {
             let fp32_16_inv = fixed!(0.0625: I1F31);
 
             {
-                let prio3_32 = ctor_32(2, 3, 0).unwrap();
+                let prio3_32 = ctor_32(2, 3, noise_parameter_no_noise).unwrap();
                 test_fixed(fp32_4_inv, fp32_8_inv, fp32_16_inv, prio3_32);
             }
 
             #[cfg(feature = "multithreaded")]
             {
-                let prio3_32_mt = ctor_mt_32(2, 3, 0).unwrap();
+                let prio3_32_mt = ctor_mt_32(2, 3, noise_parameter_no_noise).unwrap();
                 test_fixed(fp32_4_inv, fp32_8_inv, fp32_16_inv, prio3_32_mt);
             }
         }
@@ -1238,13 +1241,13 @@ mod tests {
             let fp64_16_inv = fixed!(0.0625: I1F63);
 
             {
-                let prio3_64 = ctor_64(2, 3, 0).unwrap();
+                let prio3_64 = ctor_64(2, 3, noise_parameter_no_noise).unwrap();
                 test_fixed(fp64_4_inv, fp64_8_inv, fp64_16_inv, prio3_64);
             }
 
             #[cfg(feature = "multithreaded")]
             {
-                let prio3_64_mt = ctor_mt_64(2, 3, 0).unwrap();
+                let prio3_64_mt = ctor_mt_64(2, 3, noise_parameter_no_noise).unwrap();
                 test_fixed(fp64_4_inv, fp64_8_inv, fp64_16_inv, prio3_64_mt);
             }
         }

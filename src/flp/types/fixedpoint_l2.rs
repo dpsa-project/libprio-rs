@@ -163,6 +163,9 @@ use fixed::traits::Fixed;
 
 use std::{convert::TryFrom, convert::TryInto, fmt::Debug, marker::PhantomData};
 
+pub type NoiseParameterType = (u64,u64);
+pub const noise_parameter_no_noise : NoiseParameterType = (0,1);
+
 /// The fixed point vector sum data type. Each measurement is a vector of fixed point numbers of
 /// type `T`, and the aggregate result is the float vector of the sum of the measurements.
 ///
@@ -202,7 +205,7 @@ pub struct FixedPointBoundedL2VecSum<
     gadget1_chunk_len: usize,
 
     // configuration of dp noise
-    noise_parameter: u8,
+    noise_parameter: NoiseParameterType,
 }
 
 impl<T, F, SPoly, SBlindPoly> FixedPointBoundedL2VecSum<T, F, SPoly, SBlindPoly>
@@ -215,7 +218,7 @@ where
 {
     /// Return a new [`FixedPointBoundedL2VecSum`] type parameter. Each value of this type is a
     /// fixed point vector with `entries` entries.
-    pub fn new(entries: usize, noise_parameter: u8) -> Result<Self, FlpError> {
+    pub fn new(entries: usize, noise_parameter: NoiseParameterType) -> Result<Self, FlpError> {
         // (0) initialize constants
         let fi_one = F::Integer::from(F::one());
         let fi_two = fi_one + fi_one;
@@ -540,8 +543,8 @@ where
     fn add_noise(&self, aggregate_share: Vec<F>) -> Vec<F> {
         println!("adding noise!");
         println!("input vector is: {aggregate_share:?}");
-        println!("noise param is: {}", self.noise_parameter);
-        let totally_random_noise : F = F::from(F::valid_integer_try_from(self.noise_parameter as usize).unwrap());
+        println!("noise param is: {:?}", self.noise_parameter);
+        let totally_random_noise : F = F::from(F::valid_integer_try_from(self.noise_parameter.0 as usize).unwrap());
 
         let res = aggregate_share.iter().map(|x| *x + totally_random_noise).collect();
         println!("result vector is: {res:?}");
