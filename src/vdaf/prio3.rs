@@ -990,7 +990,7 @@ where
             agg_share.accumulate(&output_share)?;
         }
 
-        agg_share.0 = self.typ.add_noise(agg_share.0);
+        agg_share.0 = self.typ.add_noise(agg_share.0)?;
 
         Ok(agg_share)
     }
@@ -999,7 +999,7 @@ where
     fn postprocess(&self, _agg_param: &Self::AggregationParam, mut agg_share: Self::AggregateShare) -> Result<Self::AggregateShare, VdafError> {
         println!("running postprocess on agg_share!");
 
-        agg_share.0 = self.typ.add_noise(agg_share.0);
+        agg_share.0 = self.typ.add_noise(agg_share.0)?;
 
         Ok(agg_share)
     }

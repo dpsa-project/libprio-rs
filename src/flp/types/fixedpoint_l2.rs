@@ -158,6 +158,7 @@ pub mod noise;
 use crate::field::{FieldElement, FieldElementExt};
 use crate::flp::gadgets::{BlindPolyEval, ParallelSumGadget, PolyEval};
 use crate::flp::types::fixedpoint_l2::compatible_float::CompatibleFloat;
+use crate::flp::types::fixedpoint_l2::noise::sample_discrete_gaussian;
 //use crate::flp::types::fixedpoint_l2::noise::sample_discrete_gaussian;
 use crate::flp::{FlpError, Gadget, Type};
 use crate::polynomial::poly_range_check;
@@ -542,15 +543,45 @@ where
         Ok(decoded_vector)
     }
 
-    fn add_noise(&self, aggregate_share: Vec<F>) -> Vec<F> {
+    fn add_noise(&self, aggregate_share: Vec<F>) -> Result<Vec<F>, FlpError> {
         println!("adding noise!");
         println!("input vector is: {aggregate_share:?}");
         println!("noise param is: {:?}", self.noise_parameter);
-        let totally_random_noise : F = F::from(F::valid_integer_try_from(self.noise_parameter.0 as usize).unwrap());
 
-        let res = aggregate_share.iter().map(|x| *x + totally_random_noise).collect();
+        let get_noise = || -> Result<F::Integer, FlpError>  {
+            let noise : i64 = sample_discrete_gaussian(self.noise_parameter.0,self.noise_parameter.1)
+                          .map_err(|e| FlpError::Noise(e.to_string()))?;
+
+            let pos_noise : u64 = noise.abs_diff(0);
+            let usize_pos_noise : usize = pos_noise.try_into().unwrap();
+
+            // compute the field integer corresponding to the i64 value
+            // we need to be careful because the negative i64 values
+            // are actually "positive" values in the unsigned F::Integer type.
+            let fi_pos_noise : F::Integer = F::valid_integer_try_from(usize_pos_noise)?;
+            let f_pos_noise : F = F::from(fi_pos_noise);
+            let f_noise : F = if noise < 0 {f_pos_noise.neg()} else {f_pos_noise};
+            let fi_noise : F::Integer = F::Integer::from(f_noise);
+
+            Ok(fi_noise)
+        };
+
+        let mut noise_vector : Vec<F> = vec![F::zero(); self.entries*self.bits_per_entry + self.bits_for_norm];
+
+        for i in 0..self.entries {
+            let start = i * self.bits_per_entry;
+            let end   = (i + 1) * self.bits_per_entry;
+            let noise = get_noise()?;
+            F::fill_with_bitvector_representation(&noise, &mut noise_vector[start..end])?;
+        }
+        println!("noise vector is: {noise_vector:?}");
+
+        assert_eq!(noise_vector.len(), aggregate_share.len());
+
+        let res : Vec<F> = aggregate_share.into_iter().zip(noise_vector).map(|(a,b)| a + b).collect();
+
         println!("result vector is: {res:?}");
-        res
+        Ok(res)
     }
 
     fn input_len(&self) -> usize {
