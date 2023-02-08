@@ -1,6 +1,6 @@
 //! Implementation a sampler from the Discrete Gaussian Distribution
-use std::error;
 use std::convert::TryInto;
+use std::error;
 
 type RandResult<R> = Result<R, Box<dyn error::Error>>;
 
@@ -131,12 +131,11 @@ pub fn sample_discrete_gaussian(n: u64, d: u64) -> RandResult<i64> {
         return Ok(0);
     }
     let t = n / d + 1;
-    println!("    --------t: {}", t);
     loop {
         let y = sample_discrete_laplace(t, 1)?;
         let y_abs: u64 = y.abs().try_into()?;
         if sample_bernoulli_exp(
-            d.pow(2) * t * y_abs * (y_abs * d.pow(2) - 2 * n.pow(2)) + n.pow(4), // TODO overflows!
+            (d.pow(2) * (d * t * y_abs).pow(2) + n.pow(4)) - 2 * t * y_abs * (n * d).pow(2), //TODO overflow danger
             2 * (t * n * d).pow(2),
         )? {
             return Ok(y);
@@ -147,6 +146,7 @@ pub fn sample_discrete_gaussian(n: u64, d: u64) -> RandResult<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn test_samplers() {
@@ -155,6 +155,7 @@ mod tests {
             let samples = (1..n).map(|_| sampler());
             let mean = samples.clone().sum::<f64>() / n as f64;
             let var = samples.map(|s| (s - mean) * (s - mean)).sum::<f64>() / n as f64;
+
             return (mean, var);
         }
 
@@ -166,15 +167,44 @@ mod tests {
              exp bernoulli <1 (should be ~0.904, ~0.086): {:?}\n
              exp bernoulli (should be ~0.22, ~0.173): {:?}\n
              exp geom (should be ~9.5, ~99.91): {:?}\n
-             laplace (should be ~0, ~???): {:?}\n
-             gauss(should be ~0, ~???): {:?}\n",
+             laplace (should be ~0, ~800): {:?}\n
+             gauss(should be ~0, ~400): {:?}\n",
             sample_stat(|| sample_uniform_u64_below(10).unwrap() as f64, n),
-            sample_stat(|| if sample_bernoulli_frac(1,10).unwrap() {1.} else {0.}, n),
-            sample_stat(|| if sample_bernoulli_exp1(1,10).unwrap() {1.} else {0.}, n),
-            sample_stat(|| if sample_bernoulli_exp(3,2).unwrap() {1.} else {0.}, n),
-            sample_stat(|| sample_geometric_exp_fast(1,10).unwrap() as f64, n),
-            sample_stat(|| sample_discrete_laplace(1,2).unwrap() as f64, n),
-            sample_stat(|| sample_discrete_laplace(1,10).unwrap() as f64, n),
+            sample_stat(
+                || if sample_bernoulli_frac(1, 10).unwrap() {
+                    1.
+                } else {
+                    0.
+                },
+                n
+            ),
+            sample_stat(
+                || if sample_bernoulli_exp1(1, 10).unwrap() {
+                    1.
+                } else {
+                    0.
+                },
+                n
+            ),
+            sample_stat(
+                || if sample_bernoulli_exp(3, 2).unwrap() {
+                    1.
+                } else {
+                    0.
+                },
+                n
+            ),
+            sample_stat(|| sample_geometric_exp_fast(1, 10).unwrap() as f64, n),
+            sample_stat(|| sample_discrete_laplace(20, 1).unwrap() as f64, n),
+            sample_stat(|| sample_discrete_gaussian(20, 1).unwrap() as f64, n),
         );
+
+        /*
+        let samples: Vec<i64> = (1..n)
+            .map(|_| sample_discrete_gaussian(20, 1).unwrap())
+            .collect();
+        println!("{:?}", samples);
+        fs::write("foo.txt", format!("{:?}", samples)).expect("Unable to write file");
+        */
     }
 }
