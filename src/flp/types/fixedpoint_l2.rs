@@ -153,10 +153,12 @@
 //! For example, it is `0.999969482421875` for `n = 16`.
 
 pub mod compatible_float;
+pub mod noise;
 
 use crate::field::{FieldElement, FieldElementExt};
 use crate::flp::gadgets::{BlindPolyEval, ParallelSumGadget, PolyEval};
 use crate::flp::types::fixedpoint_l2::compatible_float::CompatibleFloat;
+//use crate::flp::types::fixedpoint_l2::noise::sample_discrete_gaussian;
 use crate::flp::{FlpError, Gadget, Type};
 use crate::polynomial::poly_range_check;
 use fixed::traits::Fixed;
@@ -679,7 +681,7 @@ mod tests {
             type Psb = ParallelSum<Field128, BlindPolyEval<Field128>>;
 
             let vsum: FixedPointBoundedL2VecSum<F, Field128, Ps, Psb> =
-                FixedPointBoundedL2VecSum::new(3, 0).unwrap();
+                FixedPointBoundedL2VecSum::new(3, (0,0)).unwrap();
             let one = Field128::one();
             // Round trip
             assert_eq!(
@@ -790,7 +792,7 @@ mod tests {
             Field128,
             ParallelSum<Field128, PolyEval<Field128>>,
             ParallelSum<Field128, BlindPolyEval<Field128>>,
-        >>::new(3, 0)
+        >>::new(3, (0,0))
         .unwrap_err();
         // vector too large
         <FixedPointBoundedL2VecSum<
@@ -798,7 +800,7 @@ mod tests {
             Field128,
             ParallelSum<Field128, PolyEval<Field128>>,
             ParallelSum<Field128, BlindPolyEval<Field128>>,
-        >>::new(30000000000, 0)
+        >>::new(30000000000, (0,0))
         .unwrap_err();
         // fixed point type has more than one int bit
         <FixedPointBoundedL2VecSum<
@@ -806,7 +808,7 @@ mod tests {
             Field128,
             ParallelSum<Field128, PolyEval<Field128>>,
             ParallelSum<Field128, BlindPolyEval<Field128>>,
-        >>::new(3, 0)
+        >>::new(3, (0,0))
         .unwrap_err();
     }
 }
