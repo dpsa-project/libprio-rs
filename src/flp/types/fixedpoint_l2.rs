@@ -552,8 +552,15 @@ where
             let noise : i64 = sample_discrete_gaussian(self.noise_parameter.0,self.noise_parameter.1)
                           .map_err(|e| FlpError::Noise(e.to_string()))?;
 
+            println!("noise: {noise}");
+
             let pos_noise : u64 = noise.abs_diff(0);
+
+            println!("pos_noise: {pos_noise}");
+
             let usize_pos_noise : usize = pos_noise.try_into().unwrap();
+
+            println!("usize_pos_noise: {usize_pos_noise}");
 
             // compute the field integer corresponding to the i64 value
             // we need to be careful because the negative i64 values
@@ -562,6 +569,10 @@ where
             let f_pos_noise : F = F::from(fi_pos_noise);
             let f_noise : F = if noise < 0 {f_pos_noise.neg()} else {f_pos_noise};
             let fi_noise : F::Integer = F::Integer::from(f_noise);
+
+            println!("fi_noise: {fi_noise:?}");
+
+            println!("");
 
             Ok(fi_noise)
         };
