@@ -577,13 +577,14 @@ where
             Ok(fi_noise)
         };
 
-        let mut noise_vector : Vec<F> = vec![F::zero(); self.entries*self.bits_per_entry + self.bits_for_norm];
+        let mut noise_vector : Vec<F> = vec![F::zero(); self.entries];
 
         for i in 0..self.entries {
-            let start = i * self.bits_per_entry;
-            let end   = (i + 1) * self.bits_per_entry;
-            let noise = get_noise()?;
-            F::fill_with_bitvector_representation(&noise, &mut noise_vector[start..end])?;
+            noise_vector[i] = get_noise()?.into();
+            // let start = i * self.bits_per_entry;
+            // let end   = (i + 1) * self.bits_per_entry;
+            // let noise = get_noise()?;
+            // F::fill_with_bitvector_representation(&noise, &mut noise_vector[start..end])?;
         }
         println!("noise vector is: {noise_vector:?}");
 
