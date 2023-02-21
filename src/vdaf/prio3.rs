@@ -989,19 +989,16 @@ where
         for output_share in output_shares.into_iter() {
             agg_share.accumulate(&output_share)?;
         }
-
-        agg_share.0 = self.typ.add_noise(agg_share.0)?;
-
         Ok(agg_share)
     }
 
-
-    fn postprocess(&self, _agg_param: &Self::AggregationParam, mut agg_share: Self::AggregateShare) -> Result<Self::AggregateShare, VdafError> {
+    /// Add noise for this prio3 type.
+    fn postprocess(&self, _agg_param: &Self::AggregationParam, agg_share: &mut Self::AggregateShare) -> Result<(), VdafError> {
         println!("running postprocess on agg_share!");
 
-        agg_share.0 = self.typ.add_noise(agg_share.0)?;
+        self.typ.add_noise(&mut agg_share.0)?;
 
-        Ok(agg_share)
+        Ok(())
     }
 }
 

@@ -336,6 +336,7 @@ where
     F: FieldElement,
     SPoly: ParallelSumGadget<F, PolyEval<F>> + Eq + Clone + 'static,
     SBlindPoly: ParallelSumGadget<F, BlindPolyEval<F>> + Eq + Clone + 'static,
+    F::Integer: TryFrom<u128>,
 {
     const ID: u32 = 0xFFFF0000;
     type Measurement = Vec<T>;
@@ -423,7 +424,7 @@ where
     ) -> Result<F, FlpError> {
         self.valid_call_check(input, joint_rand)?;
 
-        let f_num_shares = F::from(F::valid_integer_try_from(num_shares)?);
+        let f_num_shares = F::from(F::valid_integer_try_from::<usize>(num_shares)?);
         let constant_part_multiplier = F::one() / f_num_shares;
 
         // Ensure that all submitted field elements are either 0 or 1.
@@ -543,57 +544,39 @@ where
         Ok(decoded_vector)
     }
 
-    fn add_noise(&self, aggregate_share: Vec<F>) -> Result<Vec<F>, FlpError> {
-        println!("adding noise!");
-        println!("input vector is: {aggregate_share:?}");
-        println!("noise param is: {:?}", self.noise_parameter);
+    fn add_noise(&self, aggregate_share: &mut Vec<F>) -> Result<(), FlpError> {
 
+        // The noise generation function, giving us a single random field integer.
         let get_noise = || -> Result<F::Integer, FlpError>  {
-            let noise : i64 = sample_discrete_gaussian(self.noise_parameter.0,self.noise_parameter.1)
+            let noise1 : i64 = sample_discrete_gaussian(self.noise_parameter.0,self.noise_parameter.1)
                           .map_err(|e| FlpError::Noise(e.to_string()))?;
 
-            println!("noise: {noise}");
+            // TODO!!!!
+            let noise : i128 = 0;
 
-            let pos_noise : u64 = noise.abs_diff(0);
-
-            println!("pos_noise: {pos_noise}");
-
-            let usize_pos_noise : usize = pos_noise.try_into().unwrap();
-
-            println!("usize_pos_noise: {usize_pos_noise}");
-
-            // compute the field integer corresponding to the i64 value
-            // we need to be careful because the negative i64 values
-            // are actually "positive" values in the unsigned F::Integer type.
-            let fi_pos_noise : F::Integer = F::valid_integer_try_from(usize_pos_noise)?;
+            // Compute the field integer corresponding to the i128 value.
+            //
+            // For this we compute the absolute value of the noise,
+            // put it into the field, and then invert that field value
+            // if the original noise has been negative.
+            //
+            // We do this because the negative values in `F` are actually
+            // encoded by positive, "wrapped-around" values in `F::Integer`.
+            let pos_noise : u128 = noise.abs_diff(0);
+            let fi_pos_noise : F::Integer = F::valid_integer_try_from::<u128>(pos_noise)?;
             let f_pos_noise : F = F::from(fi_pos_noise);
             let f_noise : F = if noise < 0 {f_pos_noise.neg()} else {f_pos_noise};
             let fi_noise : F::Integer = F::Integer::from(f_noise);
 
-            println!("fi_noise: {fi_noise:?}");
-
-            println!("");
-
             Ok(fi_noise)
         };
 
-        let mut noise_vector : Vec<F> = vec![F::zero(); self.entries];
-
-        for i in 0..self.entries {
-            noise_vector[i] = get_noise()?.into();
-            // let start = i * self.bits_per_entry;
-            // let end   = (i + 1) * self.bits_per_entry;
-            // let noise = get_noise()?;
-            // F::fill_with_bitvector_representation(&noise, &mut noise_vector[start..end])?;
+        // Generate noise for, and apply to each entry of the aggregate share.
+        for &mut mut entry in aggregate_share {
+            entry += get_noise()?.into();
         }
-        println!("noise vector is: {noise_vector:?}");
 
-        assert_eq!(noise_vector.len(), aggregate_share.len());
-
-        let res : Vec<F> = aggregate_share.into_iter().zip(noise_vector).map(|(a,b)| a + b).collect();
-
-        println!("result vector is: {res:?}");
-        Ok(res)
+        Ok(())
     }
 
     fn input_len(&self) -> usize {

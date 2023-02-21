@@ -198,7 +198,10 @@ pub fn sample_discrete_gaussian(n: u64, d: u64) -> RandResult<i64> {
         } else {
             n.pow(2) - d.pow(2) * t * y_abs
         };
-        if sample_bernoulli_exp(num_abs.pow(2), 2 * (t * n * d).pow(2))? {
+        let val1 = num_abs.pow(2);
+        let val2 = 2 * (t * n * d).pow(2);
+        println!("val1: {val1}, val2: {val2}");
+        if sample_bernoulli_exp(num_abs.pow(2), val2)? {
             return Ok(y);
         }
     }
@@ -247,7 +250,7 @@ mod tests {
 
     #[test]
     fn test_gauss() {
-        [200, 300, 400, 2000, 10000].iter().for_each(|p| {
+        [200, 300, 400, 2000, 200000].iter().for_each(|p| {
             let sampler = || sample_discrete_gaussian(*p, 1).unwrap() as f64;
             assert!(
                 kolmogorov_smirnov(sampler, Normal::new(0., *p as f64).unwrap()),
