@@ -41,6 +41,8 @@ itertools = "0.10.5"
 modinverse = "0.1.0"
 num-bigint = "0.4.3"
 serde_json = "1.0"
+statest = "0.2.2"
+statrs = "0.13.0"
 hex = { version = "0.4.3" , features = ["serde"] }
 # Enable test_vector module for test targets
 # https://github.com/rust-lang/cargo/issues/2911#issuecomment-749580481
