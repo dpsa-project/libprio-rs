@@ -44,20 +44,31 @@
 //   The following code is adapted from the opendp implementation to reduce dependencies:
 //       https://github.com/opendp/opendp/blob/main/rust/src/traits/samplers/cks20
 
-use num_bigint::{BigInt, BigUint, ToBigUint};
+use num_bigint::{BigInt, BigUint};
 use num_traits::{One, Signed, Zero};
 use std::convert::TryInto;
 use std::error;
 
 type RandResult<R> = Result<R, Box<dyn error::Error>>;
 
-/// Sample from the discrete uniform distribution over BigUint of given size.
+/// Sample from the discrete uniform distribution over BigUint of given bit size.
 ///
 /// `sample_uniform_biguint` either returns `Err(e)`, due to a lack of system entropy,
 /// or `Ok(out)`, where `out` is distributed uniformly over BigUints of the given size.
-fn sample_uniform_biguint(size: u64) -> RandResult<BigUint> {
-    let mut buffer = vec![0; size.try_into().unwrap()];
+fn sample_uniform_biguint(size_bits: u64) -> RandResult<BigUint> {
+    // compute number of bytes required to hold size_bits bits
+    let rem = size_bits % 8;
+    let size_bytes: usize = (size_bits / 8 + (rem > 0) as u64).try_into().unwrap();
+
+    // fill a byte buffer of that size with uniform noise
+    let mut buffer = vec![0u8; size_bytes];
     getrandom::getrandom(&mut buffer)?;
+
+    // set extra bits to zero
+    if rem > 0 {
+        buffer[size_bytes - 1] >>= 8 - rem;
+    }
+
     Ok(BigUint::from_bytes_le(&buffer))
 }
 
@@ -65,25 +76,12 @@ fn sample_uniform_biguint(size: u64) -> RandResult<BigUint> {
 ///
 /// `sample_uniform_biguint_below` either returns `Err(e)`, due to a lack of system entropy,
 /// or `Ok(out)`, where `out` is distributed uniformly over $[0, upper)$.
-fn sample_uniform_biguint_below(upper: BigUint) -> RandResult<BigUint> {
-    // v % upper is unbiased for any v < MAX - MAX % upper, because
-    // MAX - MAX % upper evenly folds into [0, upper) RAND_MAX/upper times
+fn sample_uniform_biguint_below(upper: &BigUint) -> RandResult<BigUint> {
     let bits = upper.bits();
-    let bytes = if bits % 8 == 0 {
-        bits / 8
-    } else {
-        bits / 8 + 1
-    };
-    let max = BigUint::from(2u8).pow(bits.try_into().unwrap());
-    let fold = max.clone() - max % upper.clone();
-    let mut it = 0;
-     loop {
-        it += 1;
-        let v = sample_uniform_biguint(bytes)?;
-        if v <= fold
-        {
-           // println!("needed {:?} to sample {:?} fold {:?} below {:?} which has {:?} bits", it, v.clone()%upper.clone(),fold, upper, bits);
-            return Ok(v % upper);
+    loop {
+        let v = sample_uniform_biguint(bits)?;
+        if v < *upper {
+            return Ok(v);
         }
     }
 }
@@ -92,26 +90,26 @@ fn sample_uniform_biguint_below(upper: BigUint) -> RandResult<BigUint> {
 ///
 /// `sample_bernoulli_frac` either returns `Err(e)`, due to a lack of system entropy,
 /// or `Ok(out)`, where `out` is distributed as $Bernoulli(n/d)$.
-fn sample_bernoulli_frac(n: BigUint, d: BigUint) -> RandResult<bool> {
-    assert!(d > BigUint::from(0u8));
+fn sample_bernoulli_frac(n: &BigUint, d: &BigUint) -> RandResult<bool> {
+    assert!(!d.is_zero());
     assert!(n <= d);
-    let s = sample_uniform_biguint_below(d)?;
-    return Ok(s < n);
+    let s = sample_uniform_biguint_below(&d)?;
+    return Ok(s < *n);
 }
 
 /// Sample from the Bernoulli(exp(-(n/d))) distribution, where $n \leq d$.
 ///
 /// `sample_bernoulli_exp1` either returns `Err(e)`, due to a lack of system entropy,
 /// or `Ok(out)`, where `out` is distributed as $Bernoulli(exp(-(n/d)))$.
-fn sample_bernoulli_exp1(n: BigUint, d: BigUint) -> RandResult<bool> {
-    assert!(d > BigUint::from(0u8));
-    assert!(n <= d);
-    let mut k = BigUint::from(1u8);
+fn sample_bernoulli_exp1(n: &BigUint, d: &BigUint) -> RandResult<bool> {
+    assert!(!d.is_zero());
+    assert!(*n <= *d);
+    let mut k = BigUint::one();
     loop {
-        if sample_bernoulli_frac(n.clone(), d.clone() * k.clone())? {
-            k += BigUint::from(1u8);
+        if sample_bernoulli_frac(&n, &(d * &k))? {
+            k += 1u8;
         } else {
-            return Ok(k % BigUint::from(2u8) != BigUint::from(0u8));
+            return Ok(k % BigUint::from(2u8) != BigUint::zero());
         }
     }
 }
@@ -120,29 +118,29 @@ fn sample_bernoulli_exp1(n: BigUint, d: BigUint) -> RandResult<bool> {
 ///
 /// `sample_bernoulli_exp` either returns `Err(e)` due to a lack of system entropy,
 /// or `Ok(out)`, where `out` is distributed as $Bernoulli(exp(-(n/d)))$.
-fn sample_bernoulli_exp(mut n: BigUint, d: BigUint) -> RandResult<bool> {
-    assert!(d > BigUint::from(0u8));
+fn sample_bernoulli_exp(n: &BigUint, d: &BigUint) -> RandResult<bool> {
+    assert!(!d.is_zero());
     // Sample floor(n/d) independent Bernoulli(exp(-1))
     // If all are 1, return Bernoulli(exp(-((n/d)-floor(n/d))))
-    while n > d {
-        if sample_bernoulli_exp1(1u8.into(), 1u8.into())? {
-            n -= d.clone();
-        } else {
+    let mut i = BigUint::zero();
+    while i < n / d {
+        if !sample_bernoulli_exp1(&(1u8.into()), &(1u8.into()))? {
             return Ok(false);
         }
+        i += 1u8;
     }
-    sample_bernoulli_exp1(n.clone(), d.clone())
+    sample_bernoulli_exp1(&(n - d * (n / d)), &d)
 }
 
 /// Sample from the geometric distribution with parameter 1 - exp(-n/d) (slow).
 ///
 /// `sample_geometric_exp_slow` either returns `Err(e)` due to a lack of system entropy,
 /// or `Ok(out)`, where `out` is distributed as $Geometric(1 - exp(-n/d))$.
-fn sample_geometric_exp_slow(n: BigUint, d: BigUint) -> RandResult<BigUint> {
-    assert!(d > BigUint::from(0u8));
+fn sample_geometric_exp_slow(n: &BigUint, d: &BigUint) -> RandResult<BigUint> {
+    assert!(!d.is_zero());
     let mut k = 0u8.into();
     loop {
-        if sample_bernoulli_exp(n.clone(), d.clone())? {
+        if sample_bernoulli_exp(&n, &d)? {
             k += 1u8;
         } else {
             return Ok(k);
@@ -154,19 +152,17 @@ fn sample_geometric_exp_slow(n: BigUint, d: BigUint) -> RandResult<BigUint> {
 ///
 /// `sample_geometric_exp_fast` either returns `Err(e)` due to a lack of system entropy,
 /// or `Ok(out)`, where `out` is distributed as $Geometric(1 - exp(-n/d))$.
-fn sample_geometric_exp_fast(n: BigUint, d: BigUint) -> RandResult<BigUint> {
-    assert!(d > BigUint::from(0u8));
+fn sample_geometric_exp_fast(n: &BigUint, d: &BigUint) -> RandResult<BigUint> {
+    assert!(!d.is_zero());
     if n.is_zero() {
         return Ok(0u8.into());
     }
 
-    let mut u = sample_uniform_biguint_below(d.clone())?;
-    //println!("u: {:?}", u);
-    while !sample_bernoulli_exp(u.clone(), d.clone())? {
-        u = sample_uniform_biguint_below(d.clone())?;
-        //println!("u: {:?}", u);
+    let mut u = sample_uniform_biguint_below(&d)?;
+    while !sample_bernoulli_exp(&u, &d)? {
+        u = sample_uniform_biguint_below(&d)?;
     }
-    let v2 = sample_geometric_exp_slow(1u8.into(), 1u8.into())?;
+    let v2 = sample_geometric_exp_slow(&(1u8.into()), &(1u8.into()))?;
     Ok((v2 * d + u) / n)
 }
 
@@ -177,18 +173,15 @@ fn sample_geometric_exp_fast(n: BigUint, d: BigUint) -> RandResult<BigUint> {
 ///
 /// # Citation
 /// * [CKS20 The Discrete Gaussian for Differential Privacy](https://arxiv.org/abs/2004.00010)
-pub fn sample_discrete_laplace(n: BigUint, d: BigUint) -> RandResult<BigInt> {
-    assert!(d > BigUint::from(0u8));
+pub fn sample_discrete_laplace(n: &BigUint, d: &BigUint) -> RandResult<BigInt> {
+    assert!(!d.is_zero());
     if n.is_zero() {
         return Ok(0.into());
     }
 
     loop {
-        //println!("laop");
-        let positive = sample_bernoulli_frac(1u8.into(), 2u8.into())?; //TODO maybe get a distict standard bernoulli sampler
-                                                                       //println!("laop {:?}", positive);
-        let magnitude: BigInt = sample_geometric_exp_fast(d.clone(), n.clone())?.try_into()?;
-        //println!("laop {:?}", magnitude);
+        let positive = sample_bernoulli_frac(&(1u8.into()), &(2u8.into()))?; //TODO maybe get a distict standard bernoulli sampler
+        let magnitude: BigInt = sample_geometric_exp_fast(&d, &n)?.try_into()?;
         if positive || !magnitude.is_zero() {
             return Ok(if positive { magnitude } else { -magnitude });
         }
@@ -202,27 +195,23 @@ pub fn sample_discrete_laplace(n: BigUint, d: BigUint) -> RandResult<BigInt> {
 ///
 /// # Citation
 /// * [CKS20 The Discrete Gaussian for Differential Privacy](https://arxiv.org/abs/2004.00010)
-pub fn sample_discrete_gaussian(nn: u64, dd: u64) -> RandResult<BigInt> {
-    assert!(dd > 0);
-    if nn == 0 {
+pub fn sample_discrete_gaussian(n: &BigUint, d: &BigUint) -> RandResult<BigInt> {
+    assert!(!d.is_zero());
+    if n.is_zero() {
         return Ok(0.into());
     }
-    let n = nn.to_biguint().unwrap();
-    let d = dd.to_biguint().unwrap();
-    let t = n.clone() / d.clone() + BigUint::from(1u8);
+    let t = n / d + BigUint::one();
     loop {
-        //println!("loop");
-        let y = sample_discrete_laplace(t.clone(), BigUint::from(1u8))?;
-        //println!("loop {:?}", y);
+        let y = sample_discrete_laplace(&t, &(1u8.into()))?;
+
         let y_abs: BigUint = y.abs().try_into()?;
+
         // prevent some overflows
-        let v = d.pow(2) * t.clone() * y_abs;
+        let v = d.pow(2) * &t * &y_abs;
         let n2 = n.pow(2);
         let num_abs = if v >= n2 { v - n2 } else { n2 - v };
-        if sample_bernoulli_exp(
-            num_abs.pow(2),
-            BigUint::from(2u8) * (t.clone() * n.clone() * d.clone()).pow(2),
-        )? {
+
+        if sample_bernoulli_exp(&num_abs.pow(2), &(BigUint::from(2u8) * (&t * n * d).pow(2)))? {
             return Ok(y);
         }
     }
@@ -232,6 +221,7 @@ pub fn sample_discrete_gaussian(nn: u64, dd: u64) -> RandResult<BigInt> {
 mod tests {
     use super::*;
 
+    use num_bigint::ToBigUint;
     use statest::ks::*;
     use statrs::{
         distribution::{Normal, Uniform, Univariate},
@@ -271,13 +261,14 @@ mod tests {
 
     #[test]
     fn test_gauss() {
-        //[200, 300, 400, 2000, 10000].iter().for_each(|p| {
-        [200].iter().for_each(|p| {
+        [200, 300, 400, 2000, 10000].iter().for_each(|p| {
             let sampler = || {
-                <BigInt as TryInto<i128>>::try_into(sample_discrete_gaussian(*p, 1).unwrap())
-                    .unwrap() as f64
+                <BigInt as TryInto<i128>>::try_into(
+                    sample_discrete_gaussian(&((*p).to_biguint().unwrap()), &(1u8.into())).unwrap(),
+                )
+                .unwrap() as f64
             };
-assert!(
+            assert!(
                 kolmogorov_smirnov(sampler, Normal::new(0., *p as f64).unwrap()),
                 "Empirical test of discrete Gaussian({:?}) sampler failed.",
                 p
@@ -289,7 +280,7 @@ assert!(
     fn test_bernoulli() {
         [2u8, 5u8, 7u8, 9u8].iter().for_each(|p| {
             let sampler = || {
-                if sample_bernoulli_frac(1u8.into(), (*p).into()).unwrap() {
+                if sample_bernoulli_frac(&(1u8.into()), &((*p).into())).unwrap() {
                     1.
                 } else {
                     0.
@@ -322,66 +313,67 @@ assert!(
             return (mean, var, skew, kurt);
         }
 
-        let n = 1000000;
+        let n = 10000;
 
         println!(
-            "uniform (should be ~4.5, ~8.25, ~0, ~2.22): {:?}\n",/*
-             bernoulli (should be ~0.1, ~0.09, ~2.66, ~8.111): {:?}\n
-             exp bernoulli <1 (should be ~0.904, ~0.086, ~-2.76, ~8.61): {:?}\n
-             exp bernoulli (should be ~0.22, ~0.173, 1.33, ~2.76): {:?}\n
-             exp geom (should be ~9.5, ~99.91, ~9, ~2): {:?}\n
-             laplace (should be ~0, ~800, ~0, ~6): {:?}\n
-             gauss(should be ~0, ~400, ~0, ~3): {:?}\n"*/
+            "uniform (
+                should be ~4.5, ~8.25, ~0, ~1.77): {:?}\n, 
+                                                            bernoulli (should be ~0.1, ~0.09, ~2.66, ~8.111): {:?}\n
+                                                            exp bernoulli <1 (should be ~0.904, ~0.086, ~-2.76, ~8.61): {:?}\n
+                                                            exp bernoulli (should be ~0.22, ~0.173, 1.33, ~2.76): {:?}\n
+                                                            exp geom (should be ~9.5, ~99.91, ~2, ~9): {:?}\n
+                                                            laplace (should be ~0, ~800, ~0, ~6): {:?}\n
+                                                            gauss(should be ~0, ~400, ~0, ~3): {:?}\n",
             sample_stat(
                 || <BigUint as TryInto<i128>>::try_into(
-                    sample_uniform_biguint_below(BigUint::from(10u8)).unwrap()
+                    sample_uniform_biguint_below(&(BigUint::from(10u8))).unwrap()
                 )
                 .unwrap() as f64,
                 n
-            ),/*
-            sample_stat(
-                || if sample_bernoulli_frac(BigUint::from(1u8), BigUint::from(10u8)).unwrap() {
-                    1.
-                } else {
-                    0.
-                },
-                n
-            ),
-            sample_stat(
-                || if sample_bernoulli_exp1(BigUint::from(1u8), BigUint::from(10u8)).unwrap() {
-                    1.
-                } else {
-                    0.
-                },
-                n
-            ),
-            sample_stat(
-                || if sample_bernoulli_exp(BigUint::from(3u8), BigUint::from(2u8)).unwrap() {
-                    1.
-                } else {
-                    0.
-                },
-                n
-            ),
-            sample_stat(
-                || <BigUint as TryInto<i128>>::try_into(
-                    sample_geometric_exp_fast(BigUint::from(1u8), BigUint::from(10u8)).unwrap()
-                )
-                .unwrap() as f64,
-                n
-            ),
-            sample_stat(
-                || <BigInt as TryInto<i128>>::try_into(
-                    sample_discrete_laplace(BigUint::from(20u8), BigUint::from(1u8)).unwrap()
-                )
-                .unwrap() as f64,
-                n
-            ),
-            sample_stat(
-                || <BigInt as TryInto<i128>>::try_into(sample_discrete_gaussian(20, 1).unwrap())
-                    .unwrap() as f64,
-                n
-            ),*/
+            ), 
+               sample_stat(
+                   || if sample_bernoulli_frac(&(BigUint::one()), &(BigUint::from(10u8))).unwrap() {
+                       1.
+                   } else {
+                       0.
+                   },
+                   n
+               ),
+               sample_stat(
+                   || if sample_bernoulli_exp1(&(BigUint::one()),&( BigUint::from(10u8))).unwrap() {
+                       1.
+                   } else {
+                       0.
+                   },
+                   n
+               ),
+               sample_stat(
+                   || if sample_bernoulli_exp(&(BigUint::from(3u8)),&( BigUint::from(2u8))).unwrap() {
+                       1.
+                   } else {
+                       0.
+                   },
+                   n
+               ),
+               sample_stat(
+                   || <BigUint as TryInto<i128>>::try_into(
+                       sample_geometric_exp_fast(&(BigUint::one()), &(BigUint::from(10u8))).unwrap()
+                   )
+                   .unwrap() as f64,
+                   n
+               ),
+               sample_stat(
+                   || <BigInt as TryInto<i128>>::try_into(
+                       sample_discrete_laplace(&(BigUint::from(20u8)),&( BigUint::one())).unwrap()
+                   )
+                   .unwrap() as f64,
+                   n
+               ),
+               sample_stat(
+                   || <BigInt as TryInto<i128>>::try_into(sample_discrete_gaussian(&(BigUint::from(20u8)), &(BigUint::one())).unwrap())
+                       .unwrap() as f64,
+                   n
+               ),
         );
     }
 }
