@@ -277,7 +277,7 @@ mod tests {
                 <BigInt as TryInto<i128>>::try_into(sample_discrete_gaussian(*p, 1).unwrap())
                     .unwrap() as f64
             };
-            assert!(
+assert!(
                 kolmogorov_smirnov(sampler, Normal::new(0., *p as f64).unwrap()),
                 "Empirical test of discrete Gaussian({:?}) sampler failed.",
                 p

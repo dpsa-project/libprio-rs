@@ -544,9 +544,9 @@ pub trait Type: Sized + Eq + Clone + Debug {
     }
 
     /// Optionally add noise to the aggregate share.
-    /// The result vector needs to have the same size as the argument vector.
-    fn add_noise(&self, aggregate_share: Vec<Self::Field>) -> Result<Vec<Self::Field>, FlpError> {
-        Ok(aggregate_share)
+    /// The implementation is not allowed to change the size of the input vector.
+    fn add_noise(&self, aggregate_share: &mut Vec<Self::Field>) -> Result<(), FlpError> {
+        Ok(())
     }
 }
 

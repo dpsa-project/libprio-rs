@@ -228,9 +228,14 @@ where
         output_shares: M,
     ) -> Result<Self::AggregateShare, VdafError>;
 
-    /// Do some postprocessing.
-    fn postprocess(&self, _agg_param: &Self::AggregationParam, agg_share: Self::AggregateShare) -> Result<Self::AggregateShare, VdafError> {
-        Ok(agg_share)
+    /// This is special dpsa-project functionality.
+    /// In order to implement noising for differential privacy,
+    /// We define a custom postprocessing function for vdafs,
+    /// such that each aggregator can call it on its aggregate shares.
+    ///
+    /// The default implementation is the identity function.
+    fn postprocess(&self, _agg_param: &Self::AggregationParam, agg_share: &mut Self::AggregateShare) -> Result<(), VdafError> {
+        Ok(())
     }
 }
 
