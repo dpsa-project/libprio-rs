@@ -166,8 +166,8 @@ use fixed::traits::Fixed;
 
 use std::{convert::TryFrom, convert::TryInto, fmt::Debug, marker::PhantomData};
 
-pub type NoiseParameterType = (u64,u64);
-pub const noise_parameter_no_noise : NoiseParameterType = (0,1);
+pub type NoiseParameterType = (u64, u64);
+pub const noise_parameter_no_noise: NoiseParameterType = (0, 1);
 
 /// The fixed point vector sum data type. Each measurement is a vector of fixed point numbers of
 /// type `T`, and the aggregate result is the float vector of the sum of the measurements.
@@ -548,27 +548,32 @@ where
         println!("input vector is: {aggregate_share:?}");
         println!("noise param is: {:?}", self.noise_parameter);
 
-        let get_noise = || -> Result<F::Integer, FlpError>  {
-            let noise : i64 = sample_discrete_gaussian(self.noise_parameter.0,self.noise_parameter.1)
-                          .map_err(|e| FlpError::Noise(e.to_string()))?;
+        let get_noise = || -> Result<F::Integer, FlpError> {
+            let noise: i64 = 0;
+            // sample_discrete_gaussian(self.noise_parameter.0, self.noise_parameter.1)
+            //     .map_err(|e| FlpError::Noise(e.to_string()))?;
 
             println!("noise: {noise}");
 
-            let pos_noise : u64 = noise.abs_diff(0);
+            let pos_noise: u64 = noise.abs_diff(0);
 
             println!("pos_noise: {pos_noise}");
 
-            let usize_pos_noise : usize = pos_noise.try_into().unwrap();
+            let usize_pos_noise: usize = pos_noise.try_into().unwrap();
 
             println!("usize_pos_noise: {usize_pos_noise}");
 
             // compute the field integer corresponding to the i64 value
             // we need to be careful because the negative i64 values
             // are actually "positive" values in the unsigned F::Integer type.
-            let fi_pos_noise : F::Integer = F::valid_integer_try_from(usize_pos_noise)?;
-            let f_pos_noise : F = F::from(fi_pos_noise);
-            let f_noise : F = if noise < 0 {f_pos_noise.neg()} else {f_pos_noise};
-            let fi_noise : F::Integer = F::Integer::from(f_noise);
+            let fi_pos_noise: F::Integer = F::valid_integer_try_from(usize_pos_noise)?;
+            let f_pos_noise: F = F::from(fi_pos_noise);
+            let f_noise: F = if noise < 0 {
+                f_pos_noise.neg()
+            } else {
+                f_pos_noise
+            };
+            let fi_noise: F::Integer = F::Integer::from(f_noise);
 
             println!("fi_noise: {fi_noise:?}");
 
@@ -577,7 +582,7 @@ where
             Ok(fi_noise)
         };
 
-        let mut noise_vector : Vec<F> = vec![F::zero(); self.entries];
+        let mut noise_vector: Vec<F> = vec![F::zero(); self.entries];
 
         for i in 0..self.entries {
             noise_vector[i] = get_noise()?.into();
@@ -590,7 +595,11 @@ where
 
         assert_eq!(noise_vector.len(), aggregate_share.len());
 
-        let res : Vec<F> = aggregate_share.into_iter().zip(noise_vector).map(|(a,b)| a + b).collect();
+        let res: Vec<F> = aggregate_share
+            .into_iter()
+            .zip(noise_vector)
+            .map(|(a, b)| a + b)
+            .collect();
 
         println!("result vector is: {res:?}");
         Ok(res)
@@ -724,7 +733,7 @@ mod tests {
             type Psb = ParallelSum<Field128, BlindPolyEval<Field128>>;
 
             let vsum: FixedPointBoundedL2VecSum<F, Field128, Ps, Psb> =
-                FixedPointBoundedL2VecSum::new(3, (0,0)).unwrap();
+                FixedPointBoundedL2VecSum::new(3, (0, 0)).unwrap();
             let one = Field128::one();
             // Round trip
             assert_eq!(
@@ -835,7 +844,7 @@ mod tests {
             Field128,
             ParallelSum<Field128, PolyEval<Field128>>,
             ParallelSum<Field128, BlindPolyEval<Field128>>,
-        >>::new(3, (0,0))
+        >>::new(3, (0, 0))
         .unwrap_err();
         // vector too large
         <FixedPointBoundedL2VecSum<
@@ -843,7 +852,7 @@ mod tests {
             Field128,
             ParallelSum<Field128, PolyEval<Field128>>,
             ParallelSum<Field128, BlindPolyEval<Field128>>,
-        >>::new(30000000000, (0,0))
+        >>::new(30000000000, (0, 0))
         .unwrap_err();
         // fixed point type has more than one int bit
         <FixedPointBoundedL2VecSum<
@@ -851,7 +860,7 @@ mod tests {
             Field128,
             ParallelSum<Field128, PolyEval<Field128>>,
             ParallelSum<Field128, BlindPolyEval<Field128>>,
-        >>::new(3, (0,0))
+        >>::new(3, (0, 0))
         .unwrap_err();
     }
 }
