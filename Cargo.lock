@@ -938,6 +938,7 @@ dependencies = [
  "itertools",
  "modinverse",
  "num-bigint",
+ "num-traits",
  "prio",
  "rand 0.8.5",
  "rayon",
