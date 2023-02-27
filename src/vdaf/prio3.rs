@@ -38,11 +38,11 @@ use crate::field::{Field128, Field64};
 use crate::flp::gadgets::ParallelSumMultithreaded;
 #[cfg(feature = "crypto-dependencies")]
 use crate::flp::gadgets::{BlindPolyEval, ParallelSum, PolyEval};
-use crate::flp::types::fixedpoint_l2::NoiseParameterType;
 #[cfg(feature = "crypto-dependencies")]
 use crate::flp::types::fixedpoint_l2::compatible_float::CompatibleFloat;
 #[cfg(feature = "crypto-dependencies")]
 use crate::flp::types::fixedpoint_l2::FixedPointBoundedL2VecSum;
+use crate::flp::types::fixedpoint_l2::NoiseParameterType;
 #[cfg(feature = "crypto-dependencies")]
 use crate::flp::types::{Average, Count, CountVec, Histogram, Sum};
 use crate::flp::Type;
@@ -168,7 +168,10 @@ impl<Fx: Fixed + CompatibleFloat<Field128>> Prio3Aes128FixedPointBoundedL2VecSum
         noise_parameter: NoiseParameterType,
     ) -> Result<Self, VdafError> {
         check_num_aggregators(num_aggregators)?;
-        Prio3::new(num_aggregators, FixedPointBoundedL2VecSum::new(entries, noise_parameter)?)
+        Prio3::new(
+            num_aggregators,
+            FixedPointBoundedL2VecSum::new(entries, noise_parameter)?,
+        )
     }
 }
 
@@ -201,7 +204,10 @@ impl<Fx: Fixed + CompatibleFloat<Field128>> Prio3Aes128FixedPointBoundedL2VecSum
         noise_parameter: NoiseParameterType,
     ) -> Result<Self, VdafError> {
         check_num_aggregators(num_aggregators)?;
-        Prio3::new(num_aggregators, FixedPointBoundedL2VecSum::new(entries, noise_parameter)?)
+        Prio3::new(
+            num_aggregators,
+            FixedPointBoundedL2VecSum::new(entries, noise_parameter)?,
+        )
     }
 }
 
@@ -993,7 +999,11 @@ where
     }
 
     /// Add noise for this prio3 type.
-    fn postprocess(&self, _agg_param: &Self::AggregationParam, agg_share: &mut Self::AggregateShare) -> Result<(), VdafError> {
+    fn postprocess(
+        &self,
+        _agg_param: &Self::AggregationParam,
+        agg_share: &mut Self::AggregateShare,
+    ) -> Result<(), VdafError> {
         println!("running postprocess on agg_share!");
 
         self.typ.add_noise(&mut agg_share.0)?;

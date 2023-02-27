@@ -234,7 +234,11 @@ where
     /// such that each aggregator can call it on its aggregate shares.
     ///
     /// The default implementation is the identity function.
-    fn postprocess(&self, _agg_param: &Self::AggregationParam, agg_share: &mut Self::AggregateShare) -> Result<(), VdafError> {
+    fn postprocess(
+        &self,
+        _agg_param: &Self::AggregationParam,
+        agg_share: &mut Self::AggregateShare,
+    ) -> Result<(), VdafError> {
         Ok(())
     }
 }

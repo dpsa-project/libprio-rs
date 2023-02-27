@@ -545,14 +545,13 @@ where
     }
 
     fn add_noise(&self, aggregate_share: &mut Vec<F>) -> Result<(), FlpError> {
-
         let get_noise = || -> Result<F::Integer, FlpError> {
             let noise: i64 = 0;
             // sample_discrete_gaussian(self.noise_parameter.0, self.noise_parameter.1)
             //     .map_err(|e| FlpError::Noise(e.to_string()))?;
 
             // TODO!!!!
-            let noise : i128 = 0;
+            let noise: i128 = 0;
 
             // Compute the field integer corresponding to the i128 value.
             //
@@ -562,11 +561,15 @@ where
             //
             // We do this because the negative values in `F` are actually
             // encoded by positive, "wrapped-around" values in `F::Integer`.
-            let pos_noise : u128 = noise.abs_diff(0);
-            let fi_pos_noise : F::Integer = F::valid_integer_try_from::<u128>(pos_noise)?;
-            let f_pos_noise : F = F::from(fi_pos_noise);
-            let f_noise : F = if noise < 0 {f_pos_noise.neg()} else {f_pos_noise};
-            let fi_noise : F::Integer = F::Integer::from(f_noise);
+            let pos_noise: u128 = noise.abs_diff(0);
+            let fi_pos_noise: F::Integer = F::valid_integer_try_from::<u128>(pos_noise)?;
+            let f_pos_noise: F = F::from(fi_pos_noise);
+            let f_noise: F = if noise < 0 {
+                f_pos_noise.neg()
+            } else {
+                f_pos_noise
+            };
+            let fi_noise: F::Integer = F::Integer::from(f_noise);
 
             Ok(fi_noise)
         };
