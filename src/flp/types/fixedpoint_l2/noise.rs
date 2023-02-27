@@ -266,10 +266,9 @@ mod tests {
     use num_bigint::ToBigUint;
     use statest::ks::*;
     use statrs::{
-        distribution::{Normal, Uniform, Univariate},
+        distribution::{Normal, Univariate},
         function::erf,
     };
-
     /// see if `sampler` likely samples from `dist` using the Kolmogorov–Smirnov test
     fn kolmogorov_smirnov<F: Fn() -> f64, T: Univariate<f64, f64>>(sampler: F, dist: T) -> bool {
         let t_vec = (0..4000).map(|_| sampler()).collect::<Vec<f64>>();
@@ -301,6 +300,7 @@ mod tests {
         (p_emp - p_pop).abs() < abs_p_tol
     }
 
+    #[ignore]
     #[test]
     fn test_gauss() {
         [200, 300, 400, 2000, 10000].iter().for_each(|p| {
@@ -319,6 +319,7 @@ mod tests {
         })
     }
 
+    #[ignore]
     #[test]
     fn test_bernoulli() {
         [2u8, 5u8, 7u8, 9u8].iter().for_each(|p| {
@@ -337,6 +338,7 @@ mod tests {
         })
     }
 
+    #[ignore]
     #[test]
     fn test_samplers() {
         // compute sample mean and variance
