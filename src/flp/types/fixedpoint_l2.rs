@@ -163,11 +163,15 @@ use crate::flp::types::fixedpoint_l2::noise::sample_discrete_gaussian;
 use crate::flp::{FlpError, Gadget, Type};
 use crate::polynomial::poly_range_check;
 use fixed::traits::Fixed;
+use num_bigint::{BigInt, TryFromBigIntError};
 
 use std::{convert::TryFrom, convert::TryInto, fmt::Debug, marker::PhantomData};
 
+/// Type abbreviation for the noising parameter.
 pub type NoiseParameterType = (u64, u64);
-pub const noise_parameter_no_noise: NoiseParameterType = (0, 1);
+
+/// Use this value for `NoiseParameterType` if no noise should be applied.
+pub const NOISE_PARAMETER_NO_NOISE: NoiseParameterType = (0, 1);
 
 /// The fixed point vector sum data type. Each measurement is a vector of fixed point numbers of
 /// type `T`, and the aggregate result is the float vector of the sum of the measurements.
@@ -337,6 +341,7 @@ where
     SPoly: ParallelSumGadget<F, PolyEval<F>> + Eq + Clone + 'static,
     SBlindPoly: ParallelSumGadget<F, BlindPolyEval<F>> + Eq + Clone + 'static,
     F::Integer: TryFrom<u128>,
+    F::Integer: TryInto<u128>,
 {
     const ID: u32 = 0xFFFF0000;
     type Measurement = Vec<T>;
@@ -546,12 +551,30 @@ where
 
     fn add_noise(&self, aggregate_share: &mut Vec<F>) -> Result<(), FlpError> {
         let get_noise = || -> Result<F::Integer, FlpError> {
-            let noise: i64 = 0;
-            // sample_discrete_gaussian(self.noise_parameter.0, self.noise_parameter.1)
-            //     .map_err(|e| FlpError::Noise(e.to_string()))?;
+            // we get the noise as bigint, so we have to convert it to i128,
+            // for this we compute its modulo wrt the field modulus, then get
+            // the i128 value, which we put into the field.
 
-            // TODO!!!!
-            let noise: i128 = 0;
+            // 1. get noise
+            let noise: BigInt = sample_discrete_gaussian(
+                &self.noise_parameter.0.into(),
+                &self.noise_parameter.1.into(),
+            )
+            .map_err(|e| FlpError::Noise(e.to_string()))?;
+
+            // 2. modulus as BigInt
+            let modulus: u128 =
+                <F::Integer as TryInto<u128>>::try_into(F::modulus()).map_err(|_| {
+                    FlpError::Noise("Could not fit modulus in u128 when adding noise.".into())
+                })?;
+
+            let modulus: BigInt = modulus.into();
+
+            // 3. noise as i128
+            let noise: BigInt = noise % modulus;
+            let noise: i128 = noise
+                .try_into()
+                .map_err(|e: TryFromBigIntError<BigInt>| FlpError::Noise(e.to_string()))?;
 
             // Compute the field integer corresponding to the i128 value.
             //

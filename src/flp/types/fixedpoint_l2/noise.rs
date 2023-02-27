@@ -227,38 +227,6 @@ pub fn sample_discrete_gaussian(n: &BigUint, d: &BigUint) -> RandResult<BigInt> 
     }
 }
 
-pub fn run_sampler() {
-    // compute sample mean and variance
-    fn sample_stat<F: Fn() -> f64>(sampler: F, n: u64) -> (f64, f64, f64, f64) {
-        let samples = (1..n).map(|_| sampler());
-        let mean = samples.clone().sum::<f64>() / n as f64;
-        let var = samples
-            .clone()
-            .map(|s| (s - mean) * (s - mean))
-            .sum::<f64>()
-            / n as f64;
-        let skew = samples.clone().map(|s| (s - mean).powf(3.)).sum::<f64>()
-            / (var.sqrt().powf(3.) * (n as f64));
-        let kurt =
-            samples.map(|s| (s - mean).powf(4.)).sum::<f64>() / (var.sqrt().powf(4.) * (n as f64));
-
-        return (mean, var, skew, kurt);
-    }
-
-    let n = 100000;
-
-    let res = sample_stat(
-        || {
-            <BigInt as TryInto<i128>>::try_into(
-                sample_discrete_gaussian(&(BigUint::from(20u8)), &(BigUint::one())).unwrap(),
-            )
-            .unwrap() as f64
-        },
-        n,
-    );
-    println!("res {res:?}");
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

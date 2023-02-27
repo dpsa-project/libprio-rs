@@ -237,7 +237,7 @@ where
     fn postprocess(
         &self,
         _agg_param: &Self::AggregationParam,
-        agg_share: &mut Self::AggregateShare,
+        _agg_share: &mut Self::AggregateShare,
     ) -> Result<(), VdafError> {
         Ok(())
     }
