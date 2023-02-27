@@ -119,7 +119,7 @@ fn sample_bernoulli_exp1(n: &BigUint, d: &BigUint) -> RandResult<bool> {
         if sample_bernoulli_frac(&n, &(d * &k))? {
             k += 1u8;
         } else {
-            return Ok(k % BigUint::from(2u8) != BigUint::zero());
+            return Ok(!(k % BigUint::from(2u8)).is_zero());
         }
     }
 }
