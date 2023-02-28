@@ -571,10 +571,12 @@ where
             let modulus: BigInt = modulus.into();
 
             // 3. noise as i128
-            let noise: BigInt = noise % modulus;
+            let noise: BigInt = noise % modulus.clone();
             let noise: i128 = noise
                 .try_into()
                 .map_err(|e: TryFromBigIntError<BigInt>| FlpError::Noise(e.to_string()))?;
+
+            println!("noise: {noise}, modulus: {modulus}");
 
             // Compute the field integer corresponding to the i128 value.
             //
