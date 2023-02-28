@@ -1004,8 +1004,6 @@ where
         _agg_param: &Self::AggregationParam,
         agg_share: &mut Self::AggregateShare,
     ) -> Result<(), VdafError> {
-        println!("running postprocess on agg_share!");
-
         self.typ.add_noise(&mut agg_share.0)?;
 
         Ok(())

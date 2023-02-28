@@ -576,8 +576,6 @@ where
                 .try_into()
                 .map_err(|e: TryFromBigIntError<BigInt>| FlpError::Noise(e.to_string()))?;
 
-            println!("noise: {noise}, modulus: {modulus}");
-
             // Compute the field integer corresponding to the i128 value.
             //
             // For this we compute the absolute value of the noise,
@@ -599,14 +597,10 @@ where
             Ok(fi_noise)
         };
 
-        // println!("unnoised share is: {aggregate_share:?}");
-
         // Generate noise for, and apply to each entry of the aggregate share.
         for entry in aggregate_share.iter_mut() {
             *entry += get_noise()?.into();
         }
-
-        // println!("noised share is: {aggregate_share:?}");
 
         Ok(())
     }
