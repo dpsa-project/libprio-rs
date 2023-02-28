@@ -599,10 +599,14 @@ where
             Ok(fi_noise)
         };
 
+        // println!("unnoised share is: {aggregate_share:?}");
+
         // Generate noise for, and apply to each entry of the aggregate share.
-        for &mut mut entry in aggregate_share {
-            entry += get_noise()?.into();
+        for entry in aggregate_share.iter_mut() {
+            *entry += get_noise()?.into();
         }
+
+        // println!("noised share is: {aggregate_share:?}");
 
         Ok(())
     }
