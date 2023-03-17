@@ -159,19 +159,12 @@ use crate::field::{FieldElement, FieldElementExt};
 use crate::flp::gadgets::{BlindPolyEval, ParallelSumGadget, PolyEval};
 use crate::flp::types::fixedpoint_l2::compatible_float::CompatibleFloat;
 use crate::flp::types::fixedpoint_l2::noise::sample_discrete_gaussian;
-//use crate::flp::types::fixedpoint_l2::noise::sample_discrete_gaussian;
 use crate::flp::{FlpError, Gadget, Type};
 use crate::polynomial::poly_range_check;
 use fixed::traits::Fixed;
-use num_bigint::{BigInt, TryFromBigIntError};
+use num_bigint::{BigInt, BigUint, TryFromBigIntError};
 
 use std::{convert::TryFrom, convert::TryInto, fmt::Debug, marker::PhantomData};
-
-/// Type abbreviation for the noising parameter.
-pub type NoiseParameterType = (u64, u64);
-
-/// Use this value for `NoiseParameterType` if no noise should be applied.
-pub const NOISE_PARAMETER_NO_NOISE: NoiseParameterType = (0, 1);
 
 /// The fixed point vector sum data type. Each measurement is a vector of fixed point numbers of
 /// type `T`, and the aggregate result is the float vector of the sum of the measurements.
@@ -212,7 +205,7 @@ pub struct FixedPointBoundedL2VecSum<
     gadget1_chunk_len: usize,
 
     // configuration of dp noise
-    noise_parameter: NoiseParameterType,
+    noise_parameter: T,
 }
 
 impl<T, F, SPoly, SBlindPoly> FixedPointBoundedL2VecSum<T, F, SPoly, SBlindPoly>
@@ -225,7 +218,7 @@ where
 {
     /// Return a new [`FixedPointBoundedL2VecSum`] type parameter. Each value of this type is a
     /// fixed point vector with `entries` entries.
-    pub fn new(entries: usize, noise_parameter: NoiseParameterType) -> Result<Self, FlpError> {
+    pub fn new(entries: usize, noise_parameter: T) -> Result<Self, FlpError> {
         // (0) initialize constants
         let fi_one = F::Integer::from(F::one());
         let fi_two = fi_one + fi_one;
@@ -342,6 +335,8 @@ where
     SBlindPoly: ParallelSumGadget<F, BlindPolyEval<F>> + Eq + Clone + 'static,
     F::Integer: TryFrom<u128>,
     F::Integer: TryInto<u128>,
+    BigUint: From<F::Integer>,
+    BigInt: From<F::Integer>,
 {
     const ID: u32 = 0xFFFF0000;
     type Measurement = Vec<T>;
@@ -556,22 +551,15 @@ where
             // the i128 value, which we put into the field.
 
             // 1. get noise
+            let field_noise_parameter = self.noise_parameter.to_field_integer();
             let noise: BigInt = sample_discrete_gaussian(
-                &self.noise_parameter.0.into(),
-                &self.noise_parameter.1.into(),
+                &BigUint::from(field_noise_parameter),
+                &<BigUint as From<u8>>::from(1u8),
             )
             .map_err(|e| FlpError::Noise(e.to_string()))?;
 
-            // 2. modulus as BigInt
-            let modulus: u128 =
-                <F::Integer as TryInto<u128>>::try_into(F::modulus()).map_err(|_| {
-                    FlpError::Noise("Could not fit modulus in u128 when adding noise.".into())
-                })?;
-
-            let modulus: BigInt = modulus.into();
-
-            // 3. noise as i128
-            let noise: BigInt = noise % modulus.clone();
+            // 2. noise as i128
+            let noise: BigInt = noise % BigInt::from(F::modulus());
             let noise: i128 = noise
                 .try_into()
                 .map_err(|e: TryFromBigIntError<BigInt>| FlpError::Noise(e.to_string()))?;
@@ -585,8 +573,7 @@ where
             // We do this because the negative values in `F` are actually
             // encoded by positive, "wrapped-around" values in `F::Integer`.
             let pos_noise: u128 = noise.abs_diff(0);
-            let fi_pos_noise: F::Integer = F::valid_integer_try_from::<u128>(pos_noise)?;
-            let f_pos_noise: F = F::from(fi_pos_noise);
+            let f_pos_noise: F = F::from(F::valid_integer_try_from::<u128>(pos_noise)?);
             let f_noise: F = if noise < 0 {
                 f_pos_noise.neg()
             } else {
@@ -688,6 +675,7 @@ mod tests {
 
     #[test]
     fn test_bounded_fpvec_sum_parallel() {
+        let fp16_zero = fixed!(0.0: I1F15);
         let fp16_4_inv = fixed!(0.25: I1F15);
         let fp16_8_inv = fixed!(0.125: I1F15);
         let fp16_16_inv = fixed!(0.0625: I1F15);
@@ -698,16 +686,18 @@ mod tests {
         // enc(0.25) =  2^(n-1) * 0.25 + 2^(n-1)     = 40960
         // enc(0.125) =  2^(n-1) * 0.125 + 2^(n-1)   = 36864
         // enc(0.0625) =  2^(n-1) * 0.0625 + 2^(n-1) = 34816
-        test_fixed(fp16_vec, vec![40960, 36864, 34816]);
+        test_fixed(fp16_vec, vec![40960, 36864, 34816], fp16_zero);
 
+        let fp32_zero = fixed!(0.0: I1F31);
         let fp32_4_inv = fixed!(0.25: I1F31);
         let fp32_8_inv = fixed!(0.125: I1F31);
         let fp32_16_inv = fixed!(0.0625: I1F31);
 
         let fp32_vec = vec![fp32_4_inv, fp32_8_inv, fp32_16_inv];
         // computed as above but with n=32
-        test_fixed(fp32_vec, vec![2684354560, 2415919104, 2281701376]);
+        test_fixed(fp32_vec, vec![2684354560, 2415919104, 2281701376], fp32_zero);
 
+        let fp64_zero = fixed!(0.0: I1F63);
         let fp64_4_inv = fixed!(0.25: I1F63);
         let fp64_8_inv = fixed!(0.125: I1F63);
         let fp64_16_inv = fixed!(0.0625: I1F63);
@@ -721,9 +711,10 @@ mod tests {
                 10376293541461622784,
                 9799832789158199296,
             ],
+            fp64_zero
         );
 
-        fn test_fixed<F: Fixed>(fp_vec: Vec<F>, enc_vec: Vec<u128>)
+        fn test_fixed<F: Fixed>(fp_vec: Vec<F>, enc_vec: Vec<u128>, zero: F)
         where
             F: CompatibleFloat<Field128>,
         {
@@ -733,7 +724,7 @@ mod tests {
             type Psb = ParallelSum<Field128, BlindPolyEval<Field128>>;
 
             let vsum: FixedPointBoundedL2VecSum<F, Field128, Ps, Psb> =
-                FixedPointBoundedL2VecSum::new(3, (0, 0)).unwrap();
+                FixedPointBoundedL2VecSum::new(3, zero).unwrap();
             let one = Field128::one();
             // Round trip
             assert_eq!(
@@ -839,12 +830,13 @@ mod tests {
 
         // invalid initialization
         // fixed point too large
+        let fp128_zero = fixed!(0.0: I1F127);
         <FixedPointBoundedL2VecSum<
             FixedI128<U127>,
             Field128,
             ParallelSum<Field128, PolyEval<Field128>>,
             ParallelSum<Field128, BlindPolyEval<Field128>>,
-        >>::new(3, (0, 0))
+        >>::new(3, fp128_zero)
         .unwrap_err();
         // vector too large
         <FixedPointBoundedL2VecSum<
@@ -852,15 +844,16 @@ mod tests {
             Field128,
             ParallelSum<Field128, PolyEval<Field128>>,
             ParallelSum<Field128, BlindPolyEval<Field128>>,
-        >>::new(30000000000, (0, 0))
+        >>::new(30000000000, fp64_zero)
         .unwrap_err();
         // fixed point type has more than one int bit
+        let fpb_zero = fixed!(0.0: I2F14);
         <FixedPointBoundedL2VecSum<
             FixedI16<U14>,
             Field128,
             ParallelSum<Field128, PolyEval<Field128>>,
             ParallelSum<Field128, BlindPolyEval<Field128>>,
-        >>::new(3, (0, 0))
+        >>::new(3, fpb_zero)
         .unwrap_err();
     }
 }
