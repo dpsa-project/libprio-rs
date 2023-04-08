@@ -227,6 +227,14 @@ pub fn sample_discrete_gaussian(n: &BigUint, d: &BigUint) -> RandResult<BigInt> 
     }
 }
 
+// TODO: Write proper docs.
+// TODO: Write proper implementation.
+/// Compute the internal noise parameter.
+pub fn compute_noise_parameter(rho: f32) -> (BigUint, BigUint)
+{
+    (BigUint::from(0u8), BigUint::from(1u8))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

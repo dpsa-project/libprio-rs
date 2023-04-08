@@ -38,6 +38,7 @@ use crate::field::{Field128, Field64};
 use crate::flp::gadgets::ParallelSumMultithreaded;
 #[cfg(feature = "crypto-dependencies")]
 use crate::flp::gadgets::{BlindPolyEval, ParallelSum, PolyEval};
+use crate::flp::types::fixedpoint_l2::NoiseParameterType;
 #[cfg(feature = "crypto-dependencies")]
 use crate::flp::types::fixedpoint_l2::compatible_float::CompatibleFloat;
 #[cfg(feature = "crypto-dependencies")]
@@ -164,7 +165,7 @@ impl<Fx: Fixed + CompatibleFloat<Field128>> Prio3Aes128FixedPointBoundedL2VecSum
     pub fn new_aes128_fixedpoint_boundedl2_vec_sum(
         num_aggregators: u8,
         entries: usize,
-        noise_parameter: Fx,
+        noise_parameter: NoiseParameterType,
     ) -> Result<Self, VdafError> {
         check_num_aggregators(num_aggregators)?;
         Prio3::new(
@@ -1209,7 +1210,7 @@ mod tests {
 
             // two aggregators, three entries per vector.
             {
-                let prio3_16 = ctor_16(2, 3, fp16_0).unwrap();
+                let prio3_16 = ctor_16(2, 3, 0.0).unwrap();
                 test_fixed(fp16_4_inv, fp16_8_inv, fp16_16_inv, prio3_16);
             }
 
@@ -1228,7 +1229,7 @@ mod tests {
             let fp32_16_inv = fixed!(0.0625: I1F31);
 
             {
-                let prio3_32 = ctor_32(2, 3, fp32_0).unwrap();
+                let prio3_32 = ctor_32(2, 3, 0.0).unwrap();
                 test_fixed(fp32_4_inv, fp32_8_inv, fp32_16_inv, prio3_32);
             }
 
@@ -1247,7 +1248,7 @@ mod tests {
             let fp64_16_inv = fixed!(0.0625: I1F63);
 
             {
-                let prio3_64 = ctor_64(2, 3, fp64_0).unwrap();
+                let prio3_64 = ctor_64(2, 3, 0.0).unwrap();
                 test_fixed(fp64_4_inv, fp64_8_inv, fp64_16_inv, prio3_64);
             }
 
