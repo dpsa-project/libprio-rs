@@ -201,7 +201,7 @@ impl<Fx: Fixed + CompatibleFloat<Field128>> Prio3Aes128FixedPointBoundedL2VecSum
     pub fn new_aes128_fixedpoint_boundedl2_vec_sum_multithreaded(
         num_aggregators: u8,
         entries: usize,
-        noise_parameter: Fx,
+        noise_parameter: NoiseParameterType,
     ) -> Result<Self, VdafError> {
         check_num_aggregators(num_aggregators)?;
         Prio3::new(
