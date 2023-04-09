@@ -1080,6 +1080,7 @@ fn check_num_aggregators(num_aggregators: u8) -> Result<(), VdafError> {
 mod tests {
     use super::*;
     use crate::flp::gadgets::ParallelSumGadget;
+    use crate::flp::types::fixedpoint_l2::zero_noise_parameter;
     use crate::vdaf::{run_vdaf, run_vdaf_prepare};
     use assert_matches::assert_matches;
     use fixed::types::extra::{U15, U31, U63};
@@ -1210,7 +1211,7 @@ mod tests {
 
             // two aggregators, three entries per vector.
             {
-                let prio3_16 = ctor_16(2, 3, 0.0).unwrap();
+                let prio3_16 = ctor_16(2, 3, zero_noise_parameter()).unwrap();
                 test_fixed(fp16_4_inv, fp16_8_inv, fp16_16_inv, prio3_16);
             }
 
@@ -1229,7 +1230,7 @@ mod tests {
             let fp32_16_inv = fixed!(0.0625: I1F31);
 
             {
-                let prio3_32 = ctor_32(2, 3, 0.0).unwrap();
+                let prio3_32 = ctor_32(2, 3, zero_noise_parameter()).unwrap();
                 test_fixed(fp32_4_inv, fp32_8_inv, fp32_16_inv, prio3_32);
             }
 
@@ -1248,7 +1249,7 @@ mod tests {
             let fp64_16_inv = fixed!(0.0625: I1F63);
 
             {
-                let prio3_64 = ctor_64(2, 3, 0.0).unwrap();
+                let prio3_64 = ctor_64(2, 3, zero_noise_parameter()).unwrap();
                 test_fixed(fp64_4_inv, fp64_8_inv, fp64_16_inv, prio3_64);
             }
 

@@ -227,12 +227,13 @@ pub fn sample_discrete_gaussian(n: &BigUint, d: &BigUint) -> RandResult<BigInt> 
     }
 }
 
-// TODO: Write proper docs.
-// TODO: Write proper implementation.
-/// Compute the internal noise parameter.
-pub fn compute_noise_parameter(rho: f32) -> (BigUint, BigUint)
+/// Compute the noise parameter, i.e., the standard deviation input for the discrete gaussian.
+/// It is given by `sigma = Delta/eps`, where `Delta` is the sensitivity of the function
+/// which is being noised, in our case `Delta = 2^n`
+pub fn compute_std_deviation(epsilon: (BigUint, BigUint), n: usize) -> (BigUint, BigUint)
 {
-    (BigUint::from(0u8), BigUint::from(1u8))
+    let (e0,e1) = epsilon;
+    (e1 * BigUint::from(2u128.pow(n as u32)), e0)
 }
 
 #[cfg(test)]

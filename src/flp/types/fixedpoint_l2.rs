@@ -166,9 +166,13 @@ use num_bigint::{BigInt, BigUint, TryFromBigIntError};
 
 use std::{convert::TryFrom, convert::TryInto, fmt::Debug, marker::PhantomData};
 
-use self::noise::compute_noise_parameter;
+use self::noise::compute_std_deviation;
 
-pub type NoiseParameterType = f32;
+pub type NoiseParameterType = (BigUint, BigUint);
+pub fn zero_noise_parameter() -> NoiseParameterType
+{
+    (BigUint::from(0u8), BigUint::from(1u8))
+}
 
 /// The fixed point vector sum data type. Each measurement is a vector of fixed point numbers of
 /// type `T`, and the aggregate result is the float vector of the sum of the measurements.
@@ -307,7 +311,7 @@ where
         let gadget1_calls = (len1 + gadget1_chunk_len - 1) / gadget1_chunk_len;
 
         // Compute noise parameter
-        let noise_parameter = compute_noise_parameter(noise_parameter);
+        let noise_parameter = compute_std_deviation(noise_parameter, bits_per_entry);
 
         Ok(Self {
             bits_per_entry,
@@ -728,7 +732,7 @@ mod tests {
             type Psb = ParallelSum<Field128, BlindPolyEval<Field128>>;
 
             let vsum: FixedPointBoundedL2VecSum<F, Field128, Ps, Psb> =
-                FixedPointBoundedL2VecSum::new(3, zero).unwrap();
+                FixedPointBoundedL2VecSum::new(3, zero_noise_parameter()).unwrap();
             let one = Field128::one();
             // Round trip
             assert_eq!(
