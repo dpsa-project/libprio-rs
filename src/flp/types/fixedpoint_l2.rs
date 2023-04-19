@@ -168,10 +168,14 @@ use std::{convert::TryFrom, convert::TryInto, fmt::Debug, marker::PhantomData};
 
 use self::noise::compute_std_deviation;
 
+/// The privacy parameter which is passed to `FixedPointBoundedL2VecSum` has this type.
 pub type PrivacyParameterType = (u128, u128);
+
+/// If no noise should be added during aggregation, use the value returned by this function as
+/// privacy parameter.
 pub fn zero_privacy_parameter() -> PrivacyParameterType
 {
-    (0,1)
+    (1000000000,1)
 }
 
 /// The fixed point vector sum data type. Each measurement is a vector of fixed point numbers of
@@ -356,6 +360,10 @@ where
     type Field = F;
 
     fn encode_measurement(&self, fp_entries: &Vec<T>) -> Result<Vec<F>, FlpError> {
+        if fp_entries.len() != self.entries {
+            return Err(FlpError::Encode("unexpected input length".into()));
+        }
+
         // Convert the fixed-point encoded input values to field integers. We do
         // this once here because we need them for encoding but also for
         // computing the norm.
