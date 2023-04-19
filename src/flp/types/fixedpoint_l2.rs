@@ -166,6 +166,14 @@ use num_bigint::{BigInt, BigUint, TryFromBigIntError};
 
 use std::{convert::TryFrom, convert::TryInto, fmt::Debug, marker::PhantomData};
 
+use self::noise::compute_std_deviation;
+
+pub type PrivacyParameterType = (u128, u128);
+pub fn zero_privacy_parameter() -> PrivacyParameterType
+{
+    (0,1)
+}
+
 /// The fixed point vector sum data type. Each measurement is a vector of fixed point numbers of
 /// type `T`, and the aggregate result is the float vector of the sum of the measurements.
 ///
@@ -205,7 +213,7 @@ pub struct FixedPointBoundedL2VecSum<
     gadget1_chunk_len: usize,
 
     // configuration of dp noise
-    noise_parameter: T,
+    noise_parameter: (BigUint, BigUint),
 }
 
 impl<T, F, SPoly, SBlindPoly> FixedPointBoundedL2VecSum<T, F, SPoly, SBlindPoly>
@@ -218,7 +226,7 @@ where
 {
     /// Return a new [`FixedPointBoundedL2VecSum`] type parameter. Each value of this type is a
     /// fixed point vector with `entries` entries.
-    pub fn new(entries: usize, noise_parameter: T) -> Result<Self, FlpError> {
+    pub fn new(entries: usize, privacy_parameter: PrivacyParameterType) -> Result<Self, FlpError> {
         // (0) initialize constants
         let fi_one = F::Integer::from(F::one());
         let fi_two = fi_one + fi_one;
@@ -301,6 +309,10 @@ where
         let len1 = entries;
         let gadget1_chunk_len = std::cmp::max(1, (len1 as f64).sqrt() as usize);
         let gadget1_calls = (len1 + gadget1_chunk_len - 1) / gadget1_chunk_len;
+
+        // Compute noise parameter
+        let privacy_parameter = (BigUint::from(privacy_parameter.0), BigUint::from(privacy_parameter.1));
+        let noise_parameter = compute_std_deviation(privacy_parameter, bits_per_entry);
 
         Ok(Self {
             bits_per_entry,
@@ -551,11 +563,8 @@ where
             // the i128 value, which we put into the field.
 
             // 1. get noise
-            let field_noise_parameter = self.noise_parameter.to_field_integer();
-            let noise: BigInt = sample_discrete_gaussian(
-                &BigUint::from(field_noise_parameter),
-                &<BigUint as From<u8>>::from(1u8),
-            )
+            let (ref a, ref b) = self.noise_parameter;
+            let noise: BigInt = sample_discrete_gaussian(a, b)
             .map_err(|e| FlpError::Noise(e.to_string()))?;
 
             // 2. noise as i128
@@ -724,7 +733,7 @@ mod tests {
             type Psb = ParallelSum<Field128, BlindPolyEval<Field128>>;
 
             let vsum: FixedPointBoundedL2VecSum<F, Field128, Ps, Psb> =
-                FixedPointBoundedL2VecSum::new(3, zero).unwrap();
+                FixedPointBoundedL2VecSum::new(3, zero_privacy_parameter()).unwrap();
             let one = Field128::one();
             // Round trip
             assert_eq!(
@@ -836,7 +845,7 @@ mod tests {
             Field128,
             ParallelSum<Field128, PolyEval<Field128>>,
             ParallelSum<Field128, BlindPolyEval<Field128>>,
-        >>::new(3, fp128_zero)
+        >>::new(3, zero_privacy_parameter())
         .unwrap_err();
         // vector too large
         <FixedPointBoundedL2VecSum<
@@ -844,7 +853,7 @@ mod tests {
             Field128,
             ParallelSum<Field128, PolyEval<Field128>>,
             ParallelSum<Field128, BlindPolyEval<Field128>>,
-        >>::new(30000000000, fp64_zero)
+        >>::new(30000000000, zero_privacy_parameter())
         .unwrap_err();
         // fixed point type has more than one int bit
         let fpb_zero = fixed!(0.0: I2F14);
@@ -853,7 +862,7 @@ mod tests {
             Field128,
             ParallelSum<Field128, PolyEval<Field128>>,
             ParallelSum<Field128, BlindPolyEval<Field128>>,
-        >>::new(3, fpb_zero)
+        >>::new(3, zero_privacy_parameter())
         .unwrap_err();
     }
 }
