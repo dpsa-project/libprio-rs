@@ -117,9 +117,9 @@
 //! ### Differences in the computation because of distribution
 //!
 //! In `decode_result()`, what is decoded are not the submitted entries of a
-//! single client, but the sum of the the entries of all clients. We have to
-//! take this into account, and cannot directly use the `dec()` function from
-//! above. Instead we use:
+//! single client, but the sum of the the entries of all clients. We cannot
+//! directly use the `dec()` function from above, as `enc()` is not a homomorphism.
+//! Instead we use:
 //! ```text
 //! dec'(y) = y * 2^(1-n) - c
 //! ```

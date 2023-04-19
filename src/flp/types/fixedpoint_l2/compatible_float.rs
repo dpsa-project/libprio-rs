@@ -68,6 +68,13 @@ fn to_float_bits(s: Field128, c: u128, n: i32) -> f64 {
     // get integer representation of field element
     let s_int: u128 = <Field128 as FieldElement>::Integer::from(s);
 
+    // we don't want to wraparound at the field zero/modulus, because we want
+    // to allow for s < -c and the straighforward decoding would wrap those.
+    // instead, we wrap at the middle of the field
+    let modulus = u128::from(Field128::modulus());
+    let wraparound: u128 = modulus/2;
+    assert!(wraparound > 1u128<<n, "number of bits is too large");
+
     // to decode a single integer, we'd use the function
     //   dec(y) = (y - 2^(n-1)) * 2^(1-n) = y * 2^(1-n) - 1
     // as s is the sum of c encoded vector entries where c is the number of
@@ -79,15 +86,16 @@ fn to_float_bits(s: Field128, c: u128, n: i32) -> f64 {
     // where the subtraction of `c` is done on integers and only afterwards
     // the conversion to floats is done.
     //
-    // Since the RHS of the substraction may be larger than the LHS
+    // Since the RHS of the subtraction may be larger than the LHS
     // (when the number we are decoding is going to be negative),
     // yet we are dealing with unsigned 128-bit integers, we manually
     // check for the resulting sign while ensuring that the subtraction
     // does not underflow.
-    let (a, b, sign) = match (s_int, c << (n - 1)) {
-        (x, y) if x < y => (y, x, -1.0f64),
-        (x, y) => (x, y, 1.0f64),
+    let factor = match (s_int, c << (n - 1)) {
+        (x, y) if x > wraparound => -((modulus - x + y) as f64),
+        (x, y) if x < y => -((y - x) as f64),
+        (x, y) => (x - y) as f64,
     };
 
-    ((a - b) as f64) * sign * f64::powi(2.0, 1 - n)
+    factor * f64::powi(2.0, 1 - n)
 }
