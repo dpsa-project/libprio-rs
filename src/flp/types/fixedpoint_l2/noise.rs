@@ -206,6 +206,7 @@ pub fn sample_discrete_laplace(n: &BigUint, d: &BigUint) -> RandResult<BigInt> {
 /// # Citation
 /// * [CKS20 The Discrete Gaussian for Differential Privacy](https://arxiv.org/abs/2004.00010)
 pub fn sample_discrete_gaussian(n: &BigUint, d: &BigUint) -> RandResult<BigInt> {
+    println!("sampling gauss with parameter ({:?},{:?})", n, d);
     assert!(!d.is_zero());
     if n.is_zero() {
         return Ok(0.into());
@@ -222,6 +223,7 @@ pub fn sample_discrete_gaussian(n: &BigUint, d: &BigUint) -> RandResult<BigInt> 
         let num_abs = if v >= n2 { v - n2 } else { n2 - v };
 
         if sample_bernoulli_exp(&num_abs.pow(2), &(BigUint::from(2u8) * (&t * n * d).pow(2)))? {
+            println!("sampled {:?}", y);
             return Ok(y);
         }
     }
