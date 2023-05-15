@@ -153,15 +153,30 @@
 //! For example, it is `0.999969482421875` for `n = 16`.
 
 pub mod compatible_float;
+pub mod noise;
 
 use crate::field::{FftFriendlyFieldElement, FieldElementExt, FieldElementWithInteger};
 use crate::flp::gadgets::{BlindPolyEval, ParallelSumGadget, PolyEval};
 use crate::flp::types::fixedpoint_l2::compatible_float::CompatibleFloat;
+use crate::flp::types::fixedpoint_l2::noise::sample_discrete_gaussian;
 use crate::flp::{FlpError, Gadget, Type};
 use crate::polynomial::poly_range_check;
 use fixed::traits::Fixed;
+use num_bigint::{BigInt, BigUint, TryFromBigIntError};
 
 use std::{convert::TryFrom, convert::TryInto, fmt::Debug, marker::PhantomData};
+
+use self::noise::compute_std_deviation;
+
+/// The privacy parameter which is passed to `FixedPointBoundedL2VecSum` has this type.
+pub type PrivacyParameterType = (u128, u128);
+
+/// If no noise should be added during aggregation, use the value returned by this function as
+/// privacy parameter.
+pub fn zero_privacy_parameter() -> PrivacyParameterType
+{
+    (1000000000,1)
+}
 
 /// The fixed point vector sum data type. Each measurement is a vector of fixed point numbers of
 /// type `T`, and the aggregate result is the float vector of the sum of the measurements.
@@ -199,6 +214,9 @@ pub struct FixedPointBoundedL2VecSum<
     gadget0_chunk_len: usize,
     gadget1_calls: usize,
     gadget1_chunk_len: usize,
+
+    // configuration of dp noise
+    noise_parameter: (BigUint, BigUint),
 }
 
 impl<T, F, SPoly, SBlindPoly> FixedPointBoundedL2VecSum<T, F, SPoly, SBlindPoly>
@@ -211,7 +229,7 @@ where
 {
     /// Return a new [`FixedPointBoundedL2VecSum`] type parameter. Each value of this type is a
     /// fixed point vector with `entries` entries.
-    pub fn new(entries: usize) -> Result<Self, FlpError> {
+    pub fn new(entries: usize, privacy_parameter: PrivacyParameterType) -> Result<Self, FlpError> {
         // (0) initialize constants
         let fi_one = F::Integer::from(F::one());
 
@@ -289,6 +307,10 @@ where
         let gadget1_chunk_len = std::cmp::max(1, (len1 as f64).sqrt() as usize);
         let gadget1_calls = (len1 + gadget1_chunk_len - 1) / gadget1_chunk_len;
 
+        // Compute noise parameter
+        let privacy_parameter = (BigUint::from(privacy_parameter.0), BigUint::from(privacy_parameter.1));
+        let noise_parameter = compute_std_deviation(privacy_parameter, bits_per_entry);
+
         Ok(Self {
             bits_per_entry,
             entries,
@@ -306,6 +328,9 @@ where
             gadget0_chunk_len,
             gadget1_calls,
             gadget1_chunk_len,
+
+            // configuration of dp noise
+            noise_parameter,
         })
     }
 }
@@ -316,6 +341,10 @@ where
     F: FftFriendlyFieldElement,
     SPoly: ParallelSumGadget<F, PolyEval<F>> + Eq + Clone + 'static,
     SBlindPoly: ParallelSumGadget<F, BlindPolyEval<F>> + Eq + Clone + 'static,
+    F::Integer: TryFrom<u128>,
+    F::Integer: TryInto<u128>,
+    BigUint: From<F::Integer>,
+    BigInt: From<F::Integer>,
 {
     const ID: u32 = 0xFFFF0000;
     type Measurement = Vec<T>;
@@ -323,6 +352,10 @@ where
     type Field = F;
 
     fn encode_measurement(&self, fp_entries: &Vec<T>) -> Result<Vec<F>, FlpError> {
+        if fp_entries.len() != self.entries {
+            return Err(FlpError::Encode("unexpected input length".into()));
+        }
+
         // Convert the fixed-point encoded input values to field integers. We do
         // this once here because we need them for encoding but also for
         // computing the norm.
@@ -403,7 +436,7 @@ where
     ) -> Result<F, FlpError> {
         self.valid_call_check(input, joint_rand)?;
 
-        let f_num_shares = F::from(F::valid_integer_try_from(num_shares)?);
+        let f_num_shares = F::from(F::valid_integer_try_from::<usize>(num_shares)?);
         let constant_part_multiplier = F::one() / f_num_shares;
 
         // Ensure that all submitted field elements are either 0 or 1.
@@ -521,6 +554,51 @@ where
             decoded_vector.push(decoded);
         }
         Ok(decoded_vector)
+    }
+
+    fn add_noise(&self, aggregate_share: &mut Vec<F>) -> Result<(), FlpError> {
+        let get_noise = || -> Result<F::Integer, FlpError> {
+            // we get the noise as bigint, so we have to convert it to i128,
+            // for this we compute its modulo wrt the field modulus, then get
+            // the i128 value, which we put into the field.
+
+            // 1. get noise
+            let (ref a, ref b) = self.noise_parameter;
+            let noise: BigInt = sample_discrete_gaussian(a, b)
+            .map_err(|e| FlpError::Noise(e.to_string()))?;
+
+            // 2. noise as i128
+            let noise: BigInt = noise % BigInt::from(F::modulus());
+            let noise: i128 = noise
+                .try_into()
+                .map_err(|e: TryFromBigIntError<BigInt>| FlpError::Noise(e.to_string()))?;
+
+            // Compute the field integer corresponding to the i128 value.
+            //
+            // For this we compute the absolute value of the noise,
+            // put it into the field, and then invert that field value
+            // if the original noise has been negative.
+            //
+            // We do this because the negative values in `F` are actually
+            // encoded by positive, "wrapped-around" values in `F::Integer`.
+            let pos_noise: u128 = noise.abs_diff(0);
+            let f_pos_noise: F = F::from(F::valid_integer_try_from::<u128>(pos_noise)?);
+            let f_noise: F = if noise < 0 {
+                f_pos_noise.neg()
+            } else {
+                f_pos_noise
+            };
+            let fi_noise: F::Integer = F::Integer::from(f_noise);
+
+            Ok(fi_noise)
+        };
+
+        // Generate noise for, and apply to each entry of the aggregate share.
+        for entry in aggregate_share.iter_mut() {
+            *entry += get_noise()?.into();
+        }
+
+        Ok(())
     }
 
     fn input_len(&self) -> usize {
