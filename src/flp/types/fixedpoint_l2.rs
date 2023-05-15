@@ -174,7 +174,7 @@ pub type PrivacyParameterType = (u128, u128);
 /// If no noise should be added during aggregation, use the value returned by this function as
 /// privacy parameter.
 pub fn zero_privacy_parameter() -> PrivacyParameterType {
-    (1000000000, 1)
+    (1, 0)
 }
 
 /// The fixed point vector sum data type. Each measurement is a vector of fixed point numbers of
@@ -737,7 +737,7 @@ mod tests {
         type Psb = ParallelSum<Field128, BlindPolyEval<Field128>>;
 
         let vsum: FixedPointBoundedL2VecSum<F, Field128, Ps, Psb> =
-            FixedPointBoundedL2VecSum::new(3, zero_privacy_parameter()).unwrap();
+            FixedPointBoundedL2VecSum::new(3, (100, 3)).unwrap();
         let one = Field128::one();
         // Round trip
         assert_eq!(
@@ -748,6 +748,16 @@ mod tests {
                 1
             )
             .unwrap(),
+            vec!(0.25, 0.125, 0.0625)
+        );
+
+        // Noise (we only test that the noised vector is not the same as the original)
+        let mut v = vsum
+            .truncate(vsum.encode_measurement(&fp_vec).unwrap())
+            .unwrap();
+        let _ = &vsum.add_noise(&mut v).unwrap();
+        assert_ne!(
+            vsum.decode_result(&v, 1).unwrap(),
             vec!(0.25, 0.125, 0.0625)
         );
 
