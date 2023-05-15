@@ -38,7 +38,7 @@ use crate::flp::gadgets::PolyEval;
 use crate::flp::gadgets::{BlindPolyEval, ParallelSum};
 #[cfg(feature = "experimental")]
 use crate::flp::types::fixedpoint_l2::{
-    compatible_float::CompatibleFloat, FixedPointBoundedL2VecSum,
+    compatible_float::CompatibleFloat, FixedPointBoundedL2VecSum, PrivacyParameterType,
 };
 use crate::flp::types::{Average, Count, Histogram, Sum, SumVec};
 use crate::flp::Type;
@@ -163,9 +163,13 @@ impl<Fx: Fixed + CompatibleFloat<Field128>> Prio3FixedPointBoundedL2VecSum<Fx> {
     pub fn new_fixedpoint_boundedl2_vec_sum(
         num_aggregators: u8,
         entries: usize,
+        noise_parameter: PrivacyParameterType,
     ) -> Result<Self, VdafError> {
         check_num_aggregators(num_aggregators)?;
-        Prio3::new(num_aggregators, FixedPointBoundedL2VecSum::new(entries)?)
+        Prio3::new(
+            num_aggregators,
+            FixedPointBoundedL2VecSum::new(entries, noise_parameter)?,
+        )
     }
 }
 
@@ -1230,6 +1234,7 @@ mod tests {
     use super::*;
     #[cfg(feature = "experimental")]
     use crate::flp::gadgets::ParallelSumGadget;
+    use crate::flp::types::fixedpoint_l2::zero_privacy_parameter;
     use crate::vdaf::{fieldvec_roundtrip_test, run_vdaf, run_vdaf_prepare};
     use assert_matches::assert_matches;
     #[cfg(feature = "experimental")]
@@ -1355,14 +1360,14 @@ mod tests {
 
             // 32 bit fixedpoint, non-power-of-2 vector, single-threaded
             {
-                let prio3_32 = ctor_32(2, SIZE).unwrap();
+                let prio3_32 = ctor_32(2, SIZE, zero_privacy_parameter()).unwrap();
                 test_fixed_vec::<_, _, _, SIZE>(fp32_0, prio3_32);
             }
 
             // 32 bit fixedpoint, non-power-of-2 vector, multi-threaded
             #[cfg(feature = "multithreaded")]
             {
-                let prio3_mt_32 = ctor_mt_32(2, SIZE).unwrap();
+                let prio3_mt_32 = ctor_mt_32(2, SIZE, zero_privacy_parameter()).unwrap();
                 test_fixed_vec::<_, _, _, SIZE>(fp32_0, prio3_mt_32);
             }
         }
@@ -1410,7 +1415,7 @@ mod tests {
 
             // two aggregators, three entries per vector.
             {
-                let prio3_16 = ctor_16(2, 3).unwrap();
+                let prio3_16 = ctor_16(2, 3, zero_privacy_parameter()).unwrap();
                 test_fixed(fp16_4_inv, fp16_8_inv, fp16_16_inv, prio3_16);
             }
 
@@ -1428,13 +1433,13 @@ mod tests {
             let fp32_16_inv = fixed!(0.0625: I1F31);
 
             {
-                let prio3_32 = ctor_32(2, 3).unwrap();
+                let prio3_32 = ctor_32(2, 3, zero_privacy_parameter()).unwrap();
                 test_fixed(fp32_4_inv, fp32_8_inv, fp32_16_inv, prio3_32);
             }
 
             #[cfg(feature = "multithreaded")]
             {
-                let prio3_32_mt = ctor_mt_32(2, 3).unwrap();
+                let prio3_32_mt = ctor_mt_32(2, 3, zero_privacy_parameter()).unwrap();
                 test_fixed(fp32_4_inv, fp32_8_inv, fp32_16_inv, prio3_32_mt);
             }
         }
@@ -1446,13 +1451,13 @@ mod tests {
             let fp64_16_inv = fixed!(0.0625: I1F63);
 
             {
-                let prio3_64 = ctor_64(2, 3).unwrap();
+                let prio3_64 = ctor_64(2, 3, zero_privacy_parameter()).unwrap();
                 test_fixed(fp64_4_inv, fp64_8_inv, fp64_16_inv, prio3_64);
             }
 
             #[cfg(feature = "multithreaded")]
             {
-                let prio3_64_mt = ctor_mt_64(2, 3).unwrap();
+                let prio3_64_mt = ctor_mt_64(2, 3, zero_privacy_parameter()).unwrap();
                 test_fixed(fp64_4_inv, fp64_8_inv, fp64_16_inv, prio3_64_mt);
             }
         }

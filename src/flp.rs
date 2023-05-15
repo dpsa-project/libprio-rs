@@ -104,6 +104,10 @@ pub enum FlpError {
     #[error("Field error: {0}")]
     Field(#[from] FieldError),
 
+    /// An error happened during noising.
+    #[error("noise error: {0}")]
+    Noise(String),
+
     /// Unit test error.
     #[cfg(test)]
     #[error("test failed: {0}")]
@@ -541,6 +545,12 @@ pub trait Type: Sized + Eq + Clone + Debug {
             )));
         }
 
+        Ok(())
+    }
+
+    /// Optionally add noise to the aggregate share.
+    /// The implementation is not allowed to change the size of the input vector.
+    fn add_noise(&self, _aggregate_share: &mut Vec<Self::Field>) -> Result<(), FlpError> {
         Ok(())
     }
 }

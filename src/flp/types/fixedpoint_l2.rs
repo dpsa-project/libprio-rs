@@ -173,9 +173,8 @@ pub type PrivacyParameterType = (u128, u128);
 
 /// If no noise should be added during aggregation, use the value returned by this function as
 /// privacy parameter.
-pub fn zero_privacy_parameter() -> PrivacyParameterType
-{
-    (1000000000,1)
+pub fn zero_privacy_parameter() -> PrivacyParameterType {
+    (1000000000, 1)
 }
 
 /// The fixed point vector sum data type. Each measurement is a vector of fixed point numbers of
@@ -308,7 +307,10 @@ where
         let gadget1_calls = (len1 + gadget1_chunk_len - 1) / gadget1_chunk_len;
 
         // Compute noise parameter
-        let privacy_parameter = (BigUint::from(privacy_parameter.0), BigUint::from(privacy_parameter.1));
+        let privacy_parameter = (
+            BigUint::from(privacy_parameter.0),
+            BigUint::from(privacy_parameter.1),
+        );
         let noise_parameter = compute_std_deviation(privacy_parameter, bits_per_entry);
 
         Ok(Self {
@@ -564,8 +566,8 @@ where
 
             // 1. get noise
             let (ref a, ref b) = self.noise_parameter;
-            let noise: BigInt = sample_discrete_gaussian(a, b)
-            .map_err(|e| FlpError::Noise(e.to_string()))?;
+            let noise: BigInt =
+                sample_discrete_gaussian(a, b).map_err(|e| FlpError::Noise(e.to_string()))?;
 
             // 2. noise as i128
             let noise: BigInt = noise % BigInt::from(F::modulus());
@@ -735,7 +737,7 @@ mod tests {
         type Psb = ParallelSum<Field128, BlindPolyEval<Field128>>;
 
         let vsum: FixedPointBoundedL2VecSum<F, Field128, Ps, Psb> =
-            FixedPointBoundedL2VecSum::new(3).unwrap();
+            FixedPointBoundedL2VecSum::new(3, zero_privacy_parameter()).unwrap();
         let one = Field128::one();
         // Round trip
         assert_eq!(
@@ -848,7 +850,7 @@ mod tests {
             Field128,
             ParallelSum<Field128, PolyEval<Field128>>,
             ParallelSum<Field128, BlindPolyEval<Field128>>,
-        >>::new(3)
+        >>::new(3, zero_privacy_parameter())
         .unwrap_err();
         // vector too large
         <FixedPointBoundedL2VecSum<
@@ -856,7 +858,7 @@ mod tests {
             Field128,
             ParallelSum<Field128, PolyEval<Field128>>,
             ParallelSum<Field128, BlindPolyEval<Field128>>,
-        >>::new(3000000000)
+        >>::new(3000000000, zero_privacy_parameter())
         .unwrap_err();
         // fixed point type has more than one int bit
         <FixedPointBoundedL2VecSum<
@@ -864,7 +866,7 @@ mod tests {
             Field128,
             ParallelSum<Field128, PolyEval<Field128>>,
             ParallelSum<Field128, BlindPolyEval<Field128>>,
-        >>::new(3)
+        >>::new(3, zero_privacy_parameter())
         .unwrap_err();
     }
 }

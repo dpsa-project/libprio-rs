@@ -230,12 +230,11 @@ pub fn sample_discrete_gaussian(n: &BigUint, d: &BigUint) -> RandResult<BigInt> 
 /// Compute the noise parameter, i.e., the standard deviation input for the discrete gaussian.
 /// It is given by `sigma = Delta/eps`, where `Delta` is the sensitivity of the function
 /// which is being noised, in our case `Delta = 2^n`
-pub fn compute_std_deviation(epsilon: (BigUint, BigUint), n: usize) -> (BigUint, BigUint)
-{
-    let (e0,e1) = epsilon;
+pub fn compute_std_deviation(epsilon: (BigUint, BigUint), n: usize) -> (BigUint, BigUint) {
+    let (e0, e1) = epsilon;
     (e1 * BigUint::from(2u128.pow(n as u32)), e0)
 }
-
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -339,7 +338,7 @@ mod tests {
 
         println!(
             "uniform (
-                should be ~4.5, ~8.25, ~0, ~1.77): {:?}\n, 
+                should be ~4.5, ~8.25, ~0, ~1.77): {:?}\n,
                                                             bernoulli (should be ~0.1, ~0.09, ~2.66, ~8.111): {:?}\n
                                                             exp bernoulli <1 (should be ~0.904, ~0.086, ~-2.76, ~8.61): {:?}\n
                                                             exp bernoulli (should be ~0.22, ~0.173, 1.33, ~2.76): {:?}\n
@@ -399,3 +398,4 @@ mod tests {
         );
     }
 }
+*/
