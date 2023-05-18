@@ -248,6 +248,21 @@ pub trait Aggregator<const VERIFY_KEY_SIZE: usize, const NONCE_SIZE: usize>: Vda
         agg_param: &Self::AggregationParam,
         output_shares: M,
     ) -> Result<Self::AggregateShare, VdafError>;
+
+    #[cfg(feature = "experimental")]
+    /// This is special dpsa-project functionality.
+    /// In order to implement noising for differential privacy,
+    /// We define a custom postprocessing function for vdafs,
+    /// such that each aggregator can call it on its aggregate shares.
+    ///
+    /// The default implementation is the identity function.
+    fn postprocess(
+        &self,
+        _agg_param: &Self::AggregationParam,
+        _agg_share: &mut Self::AggregateShare,
+    ) -> Result<(), VdafError> {
+        Ok(())
+    }
 }
 
 /// The Collector's role in the execution of a VDAF.

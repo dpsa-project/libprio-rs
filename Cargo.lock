@@ -872,6 +872,7 @@ dependencies = [
  "itertools",
  "modinverse",
  "num-bigint",
+ "num-traits",
  "once_cell",
  "prio",
  "rand",
