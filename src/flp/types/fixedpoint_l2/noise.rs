@@ -103,8 +103,8 @@ fn sample_bernoulli_standard() -> RandResult<bool> {
 fn sample_bernoulli_frac(n: &BigUint, d: &BigUint) -> RandResult<bool> {
     assert!(!d.is_zero());
     assert!(n <= d);
-    let s = sample_uniform_biguint_below(&d)?;
-    return Ok(s < *n);
+    let s = sample_uniform_biguint_below(d)?;
+    Ok(s < *n)
 }
 
 /// Sample from the Bernoulli(exp(-(n/d))) distribution, where $n \leq d$.
@@ -116,7 +116,7 @@ fn sample_bernoulli_exp1(n: &BigUint, d: &BigUint) -> RandResult<bool> {
     assert!(n <= d);
     let mut k = BigUint::one();
     loop {
-        if sample_bernoulli_frac(&n, &(d * &k))? {
+        if sample_bernoulli_frac(n, &(d * &k))? {
             k += 1u8;
         } else {
             return Ok(!(k % BigUint::from(2u8)).is_zero());
@@ -139,7 +139,7 @@ fn sample_bernoulli_exp(n: &BigUint, d: &BigUint) -> RandResult<bool> {
         }
         i += 1u8;
     }
-    sample_bernoulli_exp1(&(n - d * (n / d)), &d)
+    sample_bernoulli_exp1(&(n - d * (n / d)), d)
 }
 
 /// Sample from the geometric distribution with parameter 1 - exp(-n/d) (slow).
@@ -150,7 +150,7 @@ fn sample_geometric_exp_slow(n: &BigUint, d: &BigUint) -> RandResult<BigUint> {
     assert!(!d.is_zero());
     let mut k = BigUint::zero();
     loop {
-        if sample_bernoulli_exp(&n, &d)? {
+        if sample_bernoulli_exp(n, d)? {
             k += 1u8;
         } else {
             return Ok(k);
@@ -168,9 +168,9 @@ fn sample_geometric_exp_fast(n: &BigUint, d: &BigUint) -> RandResult<BigUint> {
         return Ok(BigUint::zero());
     }
 
-    let mut u = sample_uniform_biguint_below(&d)?;
-    while !sample_bernoulli_exp(&u, &d)? {
-        u = sample_uniform_biguint_below(&d)?;
+    let mut u = sample_uniform_biguint_below(d)?;
+    while !sample_bernoulli_exp(&u, d)? {
+        u = sample_uniform_biguint_below(d)?;
     }
     let v2 = sample_geometric_exp_slow(&(BigUint::one()), &(BigUint::one()))?;
     Ok((v2 * d + u) / n)
@@ -191,7 +191,7 @@ pub fn sample_discrete_laplace(n: &BigUint, d: &BigUint) -> RandResult<BigInt> {
 
     loop {
         let positive = sample_bernoulli_standard()?;
-        let magnitude: BigInt = sample_geometric_exp_fast(&d, &n)?.try_into()?;
+        let magnitude: BigInt = sample_geometric_exp_fast(d, n)?.try_into()?;
         if positive || !magnitude.is_zero() {
             return Ok(if positive { magnitude } else { -magnitude });
         }

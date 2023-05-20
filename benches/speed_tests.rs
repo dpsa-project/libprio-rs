@@ -22,6 +22,7 @@ use prio::{
 #[cfg(feature = "experimental")]
 use prio::{
     field::{Field255, Field64},
+    flp::types::fixedpoint_l2::zero_privacy_parameter,
     idpf::{self, IdpfInput, RingBufferCache},
     vdaf::{
         poplar1::{Poplar1, Poplar1AggregationParam, Poplar1IdpfValue},
@@ -223,7 +224,9 @@ pub fn prio3_client(c: &mut Criterion) {
     #[cfg(feature = "experimental")]
     {
         let len = 1000;
-        let prio3 = Prio3::new_fixedpoint_boundedl2_vec_sum(num_shares, len).unwrap();
+        let prio3 =
+            Prio3::new_fixedpoint_boundedl2_vec_sum(num_shares, len, zero_privacy_parameter())
+                .unwrap();
         let fp_num = fixed!(0.0001: I1F15);
         let measurement = vec![fp_num; len];
         group.bench_function(BenchmarkId::new("fixedpoint16_boundedl2_vec", len), |b| {
@@ -235,7 +238,12 @@ pub fn prio3_client(c: &mut Criterion) {
 
     #[cfg(all(feature = "experimental", feature = "multithreaded"))]
     {
-        let prio3 = Prio3::new_fixedpoint_boundedl2_vec_sum_multithreaded(num_shares, len).unwrap();
+        let prio3 = Prio3::new_fixedpoint_boundedl2_vec_sum_multithreaded(
+            num_shares,
+            len,
+            zero_privacy_parameter(),
+        )
+        .unwrap();
         let fp_num = fixed!(0.0001: I1F15);
         let measurement = vec![fp_num; len];
         group.bench_function(
