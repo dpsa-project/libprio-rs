@@ -551,7 +551,7 @@ pub trait Type: Sized + Eq + Clone + Debug {
 
     #[cfg(feature = "experimental")]
     /// Optionally add noise to the aggregate share.
-    /// The implementation is not allowed to change the size of the input vector.
+    /// Post-condition: The size of `_aggregate_share` has not changed.
     fn add_noise(&self, _aggregate_share: &mut Vec<Self::Field>) -> Result<(), FlpError> {
         Ok(())
     }
