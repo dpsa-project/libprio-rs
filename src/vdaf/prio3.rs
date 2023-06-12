@@ -148,7 +148,6 @@ impl Prio3Sum {
 pub type Prio3FixedPointBoundedL2VecSum<Fx> = Prio3<
     FixedPointBoundedL2VecSum<
         Fx,
-        Field128,
         ParallelSum<Field128, PolyEval<Field128>>,
         ParallelSum<Field128, BlindPolyEval<Field128>>,
     >,
@@ -157,7 +156,7 @@ pub type Prio3FixedPointBoundedL2VecSum<Fx> = Prio3<
 >;
 
 #[cfg(feature = "experimental")]
-impl<Fx: Fixed + CompatibleFloat<Field128>> Prio3FixedPointBoundedL2VecSum<Fx> {
+impl<Fx: Fixed + CompatibleFloat> Prio3FixedPointBoundedL2VecSum<Fx> {
     /// Construct an instance of this VDAF with the given number of aggregators and number of
     /// vector entries.
     pub fn new_fixedpoint_boundedl2_vec_sum(
@@ -184,7 +183,6 @@ impl<Fx: Fixed + CompatibleFloat<Field128>> Prio3FixedPointBoundedL2VecSum<Fx> {
 pub type Prio3FixedPointBoundedL2VecSumMultithreaded<Fx> = Prio3<
     FixedPointBoundedL2VecSum<
         Fx,
-        Field128,
         ParallelSumMultithreaded<Field128, PolyEval<Field128>>,
         ParallelSumMultithreaded<Field128, BlindPolyEval<Field128>>,
     >,
@@ -193,7 +191,7 @@ pub type Prio3FixedPointBoundedL2VecSumMultithreaded<Fx> = Prio3<
 >;
 
 #[cfg(all(feature = "experimental", feature = "multithreaded"))]
-impl<Fx: Fixed + CompatibleFloat<Field128>> Prio3FixedPointBoundedL2VecSumMultithreaded<Fx> {
+impl<Fx: Fixed + CompatibleFloat> Prio3FixedPointBoundedL2VecSumMultithreaded<Fx> {
     /// Construct an instance of this VDAF with the given number of aggregators and number of
     /// vector entries.
     pub fn new_fixedpoint_boundedl2_vec_sum_multithreaded(
@@ -1391,9 +1389,9 @@ mod tests {
 
         fn test_fixed_vec<Fx, PE, BPE, const SIZE: usize>(
             fp_0: Fx,
-            prio3: Prio3<FixedPointBoundedL2VecSum<Fx, Field128, PE, BPE>, PrgSha3, 16>,
+            prio3: Prio3<FixedPointBoundedL2VecSum<Fx, PE, BPE>, PrgSha3, 16>,
         ) where
-            Fx: Fixed + CompatibleFloat<Field128> + std::ops::Neg<Output = Fx>,
+            Fx: Fixed + CompatibleFloat + std::ops::Neg<Output = Fx>,
             PE: Eq + ParallelSumGadget<Field128, PolyEval<Field128>> + Clone + 'static,
             BPE: Eq + ParallelSumGadget<Field128, BlindPolyEval<Field128>> + Clone + 'static,
         {
@@ -1483,9 +1481,9 @@ mod tests {
             fp_4_inv: Fx,
             fp_8_inv: Fx,
             fp_16_inv: Fx,
-            prio3: Prio3<FixedPointBoundedL2VecSum<Fx, Field128, PE, BPE>, PrgSha3, 16>,
+            prio3: Prio3<FixedPointBoundedL2VecSum<Fx, PE, BPE>, PrgSha3, 16>,
         ) where
-            Fx: Fixed + CompatibleFloat<Field128> + std::ops::Neg<Output = Fx>,
+            Fx: Fixed + CompatibleFloat + std::ops::Neg<Output = Fx>,
             PE: Eq + ParallelSumGadget<Field128, PolyEval<Field128>> + Clone + 'static,
             BPE: Eq + ParallelSumGadget<Field128, BlindPolyEval<Field128>> + Clone + 'static,
         {

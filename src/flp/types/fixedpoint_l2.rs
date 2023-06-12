@@ -174,7 +174,7 @@
 pub mod compatible_float;
 pub mod noise;
 
-use crate::field::{FftFriendlyFieldElement, FieldElementExt, FieldElementWithInteger};
+use crate::field::{Field128, FieldElement, FieldElementExt, FieldElementWithInteger};
 use crate::flp::gadgets::{BlindPolyEval, ParallelSumGadget, PolyEval};
 use crate::flp::types::fixedpoint_l2::compatible_float::CompatibleFloat;
 use crate::flp::types::fixedpoint_l2::noise::sample_discrete_gaussian;
@@ -182,6 +182,7 @@ use crate::flp::{FlpError, Gadget, Type};
 use crate::polynomial::poly_range_check;
 use fixed::traits::Fixed;
 use num_bigint::{BigInt, BigUint, TryFromBigIntError};
+use std::ops::Neg;
 
 use std::{convert::TryFrom, convert::TryInto, fmt::Debug, marker::PhantomData};
 
@@ -216,15 +217,14 @@ pub fn zero_privacy_parameter() -> PrivacyParameterType {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FixedPointBoundedL2VecSum<
     T: Fixed,
-    F: FftFriendlyFieldElement,
-    SPoly: ParallelSumGadget<F, PolyEval<F>> + Clone,
-    SBlindPoly: ParallelSumGadget<F, BlindPolyEval<F>> + Clone,
+    SPoly: ParallelSumGadget<Field128, PolyEval<Field128>> + Clone,
+    SBlindPoly: ParallelSumGadget<Field128, BlindPolyEval<Field128>> + Clone,
 > {
     bits_per_entry: usize,
     entries: usize,
     bits_for_norm: usize,
-    range_01_checker: Vec<F>,
-    norm_summand_poly: Vec<F>,
+    range_01_checker: Vec<Field128>,
+    norm_summand_poly: Vec<Field128>,
     phantom: PhantomData<(T, SPoly, SBlindPoly)>,
 
     // range/position constants
@@ -241,13 +241,11 @@ pub struct FixedPointBoundedL2VecSum<
     noise_standard_deviation: (BigUint, BigUint),
 }
 
-impl<T, F, SPoly, SBlindPoly> FixedPointBoundedL2VecSum<T, F, SPoly, SBlindPoly>
+impl<T, SPoly, SBlindPoly> FixedPointBoundedL2VecSum<T, SPoly, SBlindPoly>
 where
     T: Fixed,
-    F: FftFriendlyFieldElement,
-    SPoly: ParallelSumGadget<F, PolyEval<F>> + Clone,
-    SBlindPoly: ParallelSumGadget<F, BlindPolyEval<F>> + Clone,
-    u128: TryFrom<F::Integer>,
+    SPoly: ParallelSumGadget<Field128, PolyEval<Field128>> + Clone,
+    SBlindPoly: ParallelSumGadget<Field128, BlindPolyEval<Field128>> + Clone,
 {
     /// Return a new [`FixedPointBoundedL2VecSum`] type parameter. Each value of this type is a
     /// fixed point vector with `entries` entries. The aggregation result will satisfy
@@ -255,9 +253,9 @@ where
     /// `add_noise` function is called on it.
     pub fn new(entries: usize, privacy_parameter: PrivacyParameterType) -> Result<Self, FlpError> {
         // (0) initialize constants
-        let fi_one = F::Integer::from(F::one());
+        let fi_one = u128::from(Field128::one());
 
-        // (I) Check that the fixed type `F` is compatible.
+        // (I) Check that the fixed type is compatible.
         //
         // We only support fixed types that encode values in [-1,1].
         // These have a single integer bit.
@@ -273,7 +271,7 @@ where
         let bits_per_entry: usize = (<T as Fixed>::INT_NBITS + <T as Fixed>::FRAC_NBITS)
             .try_into()
             .map_err(|_| FlpError::Encode("Could not convert u32 into usize.".to_string()))?;
-        if !F::valid_integer_bitlength(bits_per_entry) {
+        if !Field128::valid_integer_bitlength(bits_per_entry) {
             return Err(FlpError::Encode(format!(
                 "fixed point type bit length ({bits_per_entry}) too large for field modulus",
             )));
@@ -283,7 +281,7 @@ where
         //
         // Valid norms encoded as field integers lie in [0,2^(2*bits - 2)).
         let bits_for_norm = 2 * bits_per_entry - 2;
-        if !F::valid_integer_bitlength(bits_for_norm) {
+        if !Field128::valid_integer_bitlength(bits_for_norm) {
             return Err(FlpError::Encode(format!(
                 "maximal norm bit length ({bits_for_norm}) too large for field modulus",
             )));
@@ -300,11 +298,7 @@ where
         )));
 
         if let Some(val) = (entries as u128).checked_mul(1 << bits_for_norm) {
-            if let Ok(modulus) = u128::try_from(F::modulus()) {
-                if val >= modulus {
-                    return err;
-                }
-            } else {
+            if val >= Field128::modulus() {
                 return err;
             }
         } else {
@@ -320,7 +314,11 @@ where
         //   p(y) = 2^(2n-2) + -(2^n) * y + 1 * y^2
         let linear_part = fi_one << bits_per_entry;
         let constant_part = fi_one << (bits_per_entry + bits_per_entry - 2);
-        let norm_summand_poly = vec![F::from(constant_part), -F::from(linear_part), F::one()];
+        let norm_summand_poly = vec![
+            Field128::from(constant_part),
+            -Field128::from(linear_part),
+            Field128::one(),
+        ];
 
         // Compute chunk length and number of calls for parallel sum gadgets.
         let len0 = bits_per_entry * entries + bits_for_norm;
@@ -363,23 +361,18 @@ where
     }
 }
 
-impl<T, F, SPoly, SBlindPoly> Type for FixedPointBoundedL2VecSum<T, F, SPoly, SBlindPoly>
+impl<T, SPoly, SBlindPoly> Type for FixedPointBoundedL2VecSum<T, SPoly, SBlindPoly>
 where
-    T: Fixed + CompatibleFloat<F>,
-    F: FftFriendlyFieldElement,
-    SPoly: ParallelSumGadget<F, PolyEval<F>> + Eq + Clone + 'static,
-    SBlindPoly: ParallelSumGadget<F, BlindPolyEval<F>> + Eq + Clone + 'static,
-    F::Integer: TryFrom<u128>,
-    F::Integer: TryInto<u128>,
-    BigUint: From<F::Integer>,
-    BigInt: From<F::Integer>,
+    T: Fixed + CompatibleFloat,
+    SPoly: ParallelSumGadget<Field128, PolyEval<Field128>> + Eq + Clone + 'static,
+    SBlindPoly: ParallelSumGadget<Field128, BlindPolyEval<Field128>> + Eq + Clone + 'static,
 {
     const ID: u32 = 0xFFFF0000;
     type Measurement = Vec<T>;
     type AggregateResult = Vec<f64>;
-    type Field = F;
+    type Field = Field128;
 
-    fn encode_measurement(&self, fp_entries: &Vec<T>) -> Result<Vec<F>, FlpError> {
+    fn encode_measurement(&self, fp_entries: &Vec<T>) -> Result<Vec<Field128>, FlpError> {
         if fp_entries.len() != self.entries {
             return Err(FlpError::Encode("unexpected input length".into()));
         }
@@ -392,10 +385,10 @@ where
         // (I) Vector entries.
         // Encode the integer entries bitwise, and write them into the `encoded`
         // vector.
-        let mut encoded: Vec<F> =
-            vec![F::zero(); self.bits_per_entry * self.entries + self.bits_for_norm];
+        let mut encoded: Vec<Field128> =
+            vec![Field128::zero(); self.bits_per_entry * self.entries + self.bits_for_norm];
         for (l, entry) in integer_entries.clone().enumerate() {
-            F::fill_with_bitvector_representation(
+            Field128::fill_with_bitvector_representation(
                 &entry,
                 &mut encoded[l * self.bits_per_entry..(l + 1) * self.bits_per_entry],
             )?;
@@ -403,12 +396,12 @@ where
 
         // (II) Vector norm.
         // Compute the norm of the input vector.
-        let field_entries = integer_entries.map(|x| F::from(x));
+        let field_entries = integer_entries.map(Field128::from);
         let norm = compute_norm_of_entries(field_entries, self.bits_per_entry)?;
-        let norm_int = F::Integer::from(norm);
+        let norm_int = u128::from(norm);
 
         // Write the norm into the `entries` vector.
-        F::fill_with_bitvector_representation(
+        Field128::fill_with_bitvector_representation(
             &norm_int,
             &mut encoded[self.range_norm_begin..self.range_norm_end],
         )?;
@@ -416,7 +409,11 @@ where
         Ok(encoded)
     }
 
-    fn decode_result(&self, data: &[F], num_measurements: usize) -> Result<Vec<f64>, FlpError> {
+    fn decode_result(
+        &self,
+        data: &[Field128],
+        num_measurements: usize,
+    ) -> Result<Vec<f64>, FlpError> {
         if data.len() != self.entries {
             return Err(FlpError::Decode("unexpected input length".into()));
         }
@@ -430,13 +427,13 @@ where
         };
         let mut res = Vec::with_capacity(data.len());
         for d in data {
-            let decoded = <T as CompatibleFloat<F>>::to_float(*d, num_measurements);
+            let decoded = <T as CompatibleFloat>::to_float(*d, num_measurements);
             res.push(decoded);
         }
         Ok(res)
     }
 
-    fn gadget(&self) -> Vec<Box<dyn Gadget<F>>> {
+    fn gadget(&self) -> Vec<Box<dyn Gadget<Field128>>> {
         // This gadget checks that a field element is zero or one.
         // It is called for all the "bits" of the encoded entries
         // and of the encoded norm.
@@ -457,15 +454,15 @@ where
 
     fn valid(
         &self,
-        g: &mut Vec<Box<dyn Gadget<F>>>,
-        input: &[F],
-        joint_rand: &[F],
+        g: &mut Vec<Box<dyn Gadget<Field128>>>,
+        input: &[Field128],
+        joint_rand: &[Field128],
         num_shares: usize,
-    ) -> Result<F, FlpError> {
+    ) -> Result<Field128, FlpError> {
         self.valid_call_check(input, joint_rand)?;
 
-        let f_num_shares = F::from(F::valid_integer_try_from::<usize>(num_shares)?);
-        let constant_part_multiplier = F::one() / f_num_shares;
+        let f_num_shares = Field128::from(Field128::valid_integer_try_from::<usize>(num_shares)?);
+        let constant_part_multiplier = Field128::one() / f_num_shares;
 
         // Ensure that all submitted field elements are either 0 or 1.
         // This is done for:
@@ -482,9 +479,9 @@ where
         // `ParallelSum` gadget. For a similar application see the `CountVec`
         // type.
         let range_check = {
-            let mut outp = F::zero();
+            let mut outp = Field128::zero();
             let mut r = joint_rand[0];
-            let mut padded_chunk = vec![F::zero(); 2 * self.gadget0_chunk_len];
+            let mut padded_chunk = vec![Field128::zero(); 2 * self.gadget0_chunk_len];
 
             for chunk in input[..self.range_norm_end].chunks(self.gadget0_chunk_len) {
                 let d = chunk.len();
@@ -527,17 +524,17 @@ where
         // decode the bit-encoded entries into elements in the range [0,2^n):
         let decoded_entries: Result<Vec<_>, _> = input[0..self.entries * self.bits_per_entry]
             .chunks(self.bits_per_entry)
-            .map(F::decode_from_bitvector_representation)
+            .map(Field128::decode_from_bitvector_representation)
             .collect();
 
         // run parallel sum gadget on the decoded entries
         let computed_norm = {
-            let mut outp = F::zero();
+            let mut outp = Field128::zero();
 
             // Chunks which are too short need to be extended with a share of the
             // encoded zero value, that is: 1/num_shares * (2^(n-1))
-            let fi_one = F::Integer::from(F::one());
-            let zero_enc = F::from(fi_one << (self.bits_per_entry - 1));
+            let fi_one = u128::from(Field128::one());
+            let zero_enc = Field128::from(fi_one << (self.bits_per_entry - 1));
             let zero_enc_share = zero_enc * constant_part_multiplier;
 
             for chunk in decoded_entries?.chunks(self.gadget1_chunk_len) {
@@ -559,7 +556,7 @@ where
         // The submitted norm is also decoded from its bit-encoding, and
         // compared with the computed norm.
         let submitted_norm_enc = &input[self.range_norm_begin..self.range_norm_end];
-        let submitted_norm = F::decode_from_bitvector_representation(submitted_norm_enc)?;
+        let submitted_norm = Field128::decode_from_bitvector_representation(submitted_norm_enc)?;
 
         let norm_check = computed_norm - submitted_norm;
 
@@ -569,7 +566,7 @@ where
         Ok(out)
     }
 
-    fn truncate(&self, input: Vec<F>) -> Result<Vec<Self::Field>, FlpError> {
+    fn truncate(&self, input: Vec<Field128>) -> Result<Vec<Self::Field>, FlpError> {
         self.truncate_call_check(&input)?;
 
         let mut decoded_vector = vec![];
@@ -578,14 +575,14 @@ where
             let start = i_entry * self.bits_per_entry;
             let end = (i_entry + 1) * self.bits_per_entry;
 
-            let decoded = F::decode_from_bitvector_representation(&input[start..end])?;
+            let decoded = Field128::decode_from_bitvector_representation(&input[start..end])?;
             decoded_vector.push(decoded);
         }
         Ok(decoded_vector)
     }
 
-    fn add_noise(&self, aggregate_share: &mut Vec<F>) -> Result<(), FlpError> {
-        let get_noise = || -> Result<F::Integer, FlpError> {
+    fn add_noise(&self, aggregate_share: &mut Vec<Field128>) -> Result<(), FlpError> {
+        let get_noise = || -> Result<u128, FlpError> {
             // we get the noise as bigint, so we have to convert it to i128,
             // for this we compute its modulo wrt the field modulus, then get
             // the i128 value, which we put into the field.
@@ -596,7 +593,7 @@ where
                 sample_discrete_gaussian(a, b).map_err(|e| FlpError::Noise(e.to_string()))?;
 
             // 2. noise as i128
-            let noise: BigInt = noise % BigInt::from(F::modulus());
+            let noise: BigInt = noise % BigInt::from(Field128::modulus());
             let noise: i128 = noise
                 .try_into()
                 .map_err(|e: TryFromBigIntError<BigInt>| FlpError::Noise(e.to_string()))?;
@@ -610,13 +607,13 @@ where
             // We do this because the negative values in `F` are actually
             // encoded by positive, "wrapped-around" values in `F::Integer`.
             let pos_noise: u128 = noise.abs_diff(0);
-            let f_pos_noise: F = F::from(F::valid_integer_try_from::<u128>(pos_noise)?);
-            let f_noise: F = if noise < 0 {
+            let f_pos_noise = Field128::from(Field128::valid_integer_try_from::<u128>(pos_noise)?);
+            let f_noise: Field128 = if noise < 0 {
                 f_pos_noise.neg()
             } else {
                 f_pos_noise
             };
-            let fi_noise: F::Integer = F::Integer::from(f_noise);
+            let fi_noise = u128::from(f_noise);
 
             Ok(fi_noise)
         };
@@ -671,12 +668,11 @@ where
 ///
 /// * `entries` - Iterator over the vector entries.
 /// * `bits_per_entry` - Number of bits one entry has.
-fn compute_norm_of_entries<F, Fs>(entries: Fs, bits_per_entry: usize) -> Result<F, FlpError>
+fn compute_norm_of_entries<Fs>(entries: Fs, bits_per_entry: usize) -> Result<Field128, FlpError>
 where
-    F: FieldElementWithInteger,
-    Fs: IntoIterator<Item = F>,
+    Fs: IntoIterator<Item = Field128>,
 {
-    let fi_one = F::Integer::from(F::one());
+    let fi_one = u128::from(Field128::one());
 
     // The value that is computed here is:
     //    sum_{y in entries} 2^(2n-2) + -(2^n) * y + 1 * y^2
@@ -685,7 +681,7 @@ where
     // more information.
     //
     // Initialize `norm_accumulator`.
-    let mut norm_accumulator = F::zero();
+    let mut norm_accumulator = Field128::zero();
 
     // constants
     let linear_part = fi_one << bits_per_entry; // = 2^(2n-2)
@@ -693,7 +689,8 @@ where
 
     // Add term for a given `entry` to `norm_accumulator`.
     for entry in entries.into_iter() {
-        let summand = entry * entry + F::from(constant_part) - F::from(linear_part) * (entry);
+        let summand =
+            entry * entry + Field128::from(constant_part) - Field128::from(linear_part) * (entry);
         norm_accumulator += summand;
     }
     Ok(norm_accumulator)
@@ -755,14 +752,14 @@ mod tests {
 
     fn test_fixed<F: Fixed>(fp_vec: Vec<F>, enc_vec: Vec<u128>)
     where
-        F: CompatibleFloat<Field128>,
+        F: CompatibleFloat,
     {
         let n: usize = (F::INT_NBITS + F::FRAC_NBITS).try_into().unwrap();
 
         type Ps = ParallelSum<Field128, PolyEval<Field128>>;
         type Psb = ParallelSum<Field128, BlindPolyEval<Field128>>;
 
-        let vsum: FixedPointBoundedL2VecSum<F, Field128, Ps, Psb> =
+        let vsum: FixedPointBoundedL2VecSum<F, Ps, Psb> =
             FixedPointBoundedL2VecSum::new(3, (100, 3)).unwrap();
         let one = Field128::one();
         // Round trip
@@ -883,7 +880,6 @@ mod tests {
         // fixed point too large
         <FixedPointBoundedL2VecSum<
             FixedI128<U127>,
-            Field128,
             ParallelSum<Field128, PolyEval<Field128>>,
             ParallelSum<Field128, BlindPolyEval<Field128>>,
         >>::new(3, zero_privacy_parameter())
@@ -891,7 +887,6 @@ mod tests {
         // vector too large
         <FixedPointBoundedL2VecSum<
             FixedI64<U63>,
-            Field128,
             ParallelSum<Field128, PolyEval<Field128>>,
             ParallelSum<Field128, BlindPolyEval<Field128>>,
         >>::new(3000000000, zero_privacy_parameter())
@@ -899,7 +894,6 @@ mod tests {
         // fixed point type has more than one int bit
         <FixedPointBoundedL2VecSum<
             FixedI16<U14>,
-            Field128,
             ParallelSum<Field128, PolyEval<Field128>>,
             ParallelSum<Field128, BlindPolyEval<Field128>>,
         >>::new(3, zero_privacy_parameter())
