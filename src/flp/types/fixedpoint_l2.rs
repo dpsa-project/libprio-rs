@@ -2,7 +2,9 @@
 
 //! A [`Type`] for summing vectors of fixed point numbers where the
 //! [L2 norm](https://en.wikipedia.org/wiki/Norm_(mathematics)#Euclidean_norm)
-//! of each vector is bounded by `1`.
+//! of each vector is bounded by `1` and adding [discrete Gaussian
+//! noise](https://arxiv.org/abs/2004.00010) in order to achieve central
+//! differential privacy.
 //!
 //! In the following a high level overview over the inner workings of this type
 //! is given and implementation details are discussed. It is not necessary for
@@ -15,6 +17,21 @@
 //! together with a norm in the range `[0,1)`. The validation circuit checks that
 //! the norm of the vector is equal to the submitted norm, while the encoding
 //! guarantees that the submitted norm lies in the correct range.
+//!
+//! The bound on the L2 norm allows calibration of discrete Gaussian noise added
+//! after aggregation, making the procedure differentially private.
+//!
+//! ### Submission layout
+//!
+//! The client submissions contain a share of their vector and the norm
+//! they claim it has.
+//! The submission is a vector of field elements laid out as follows:
+//! ```text
+//! |---- bits_per_entry * entries ----|---- bits_for_norm ----|
+//!  ^                                  ^
+//!  \- the input vector entries        |
+//!                                     \- the encoded norm
+//! ```
 //!
 //! ### Different number encodings
 //!
@@ -62,6 +79,14 @@
 //! numbers as real numbers. Since our signed fixed-point numbers are encoded as
 //! two's complement integers, the computation that happens in
 //! [`CompatibleFloat::to_field_integer`] is actually simpler.
+//!
+//! ### Value `1`
+//!
+//! We actually do not allow the submitted norm or vector entries to be
+//! exactly `1`, but rather require them to be strictly less. Supporting `1` would
+//! entail a more fiddly encoding and is not necessary for our usecase.
+//! The largest representable vector entry can be computed by `dec(2^n-1)`.
+//! For example, it is `0.999969482421875` for `n = 16`.
 //!
 //! ### Norm computation
 //!
@@ -114,6 +139,18 @@
 //! This means that the valid norms are exactly those representable with `2n-2`
 //! bits.
 //!
+//! ### Noise and Differential Privacy
+//!
+//! Bounding the submission norm bounds the impact that changing a single
+//! client's submission can have on the aggregate. That is, the so-called
+//! sensitivicy of the procedure is equal to two times the norm bound, namely
+//! `2^n`. Therefore, adding discrete Gaussian noise with standard deviation
+//! `sigma = `(2^n)/eps` for some `eps` will make the procedure [`(eps^2)/2`
+//! zero-concentrated differentially private](https://arxiv.org/abs/2004.00010).
+//! `eps` is given as a parameter for type construction. Projecting onto the
+//! field and decoding retains the privacy guarantee due to post-processing
+//! invariance.
+//!
 //! ### Differences in the computation because of distribution
 //!
 //! In `decode_result()`, what is decoded are not the submitted entries of a
@@ -128,29 +165,11 @@
 //! ### Naming in the implementation
 //!
 //! The following names are used:
-//!  - `self.bits_per_entry` is `n`
-//!  - `self.entries`        is `d`
-//!  - `self.bits_for_norm`  is `2n-2`
+//!  - `self.bits_per_entry`           is `n`
+//!  - `self.entries`                  is `d`
+//!  - `self.bits_for_norm`            is `2n-2`
+//!  - `self.noise_standard_deviation` is `sigma`
 //!
-//! ### Submission layout
-//!
-//! The client submissions contain a share of their vector and the norm
-//! they claim it has.
-//! The submission is a vector of field elements laid out as follows:
-//! ```text
-//! |---- bits_per_entry * entries ----|---- bits_for_norm ----|
-//!  ^                                  ^
-//!  \- the input vector entries        |
-//!                                     \- the encoded norm
-//! ```
-//!
-//! ### Value `1`
-//!
-//! We actually do not allow the submitted norm or vector entries to be
-//! exactly `1`, but rather require them to be strictly less. Supporting `1` would
-//! entail a more fiddly encoding and is not necessary for our usecase.
-//! The largest representable vector entry can be computed by `dec(2^n-1)`.
-//! For example, it is `0.999969482421875` for `n = 16`.
 
 pub mod compatible_float;
 pub mod noise;
@@ -166,7 +185,7 @@ use num_bigint::{BigInt, BigUint, TryFromBigIntError};
 
 use std::{convert::TryFrom, convert::TryInto, fmt::Debug, marker::PhantomData};
 
-use self::noise::compute_std_deviation;
+use self::noise::compute_standard_deviation;
 
 /// The privacy parameter which is passed to `FixedPointBoundedL2VecSum` has this type.
 pub type PrivacyParameterType = (u128, u128);
@@ -185,6 +204,10 @@ pub fn zero_privacy_parameter() -> PrivacyParameterType {
 /// The [*fixed* crate](https://crates.io/crates/fixed) is used for fixed point numbers, in
 /// particular, exactly the following types are supported:
 /// `FixedI16<U15>`, `FixedI32<U31>` and `FixedI64<U63>`.
+///
+/// The type provides an `add_noise` function that will add discrete Gaussian noise to the
+/// aggregate, calibrated to the privacy parameter given at object construction. This will result
+/// in the aggregate satisfying zero-concentrated differential privacy.
 ///
 /// Depending on the size of the vector that needs to be transmitted, a corresponding field type has
 /// to be chosen for `F`. For a `n`-bit fixed point type and a `d`-dimensional vector, the field
@@ -214,8 +237,8 @@ pub struct FixedPointBoundedL2VecSum<
     gadget1_calls: usize,
     gadget1_chunk_len: usize,
 
-    // configuration of dp noise
-    noise_parameter: (BigUint, BigUint),
+    // std of discrete gaussian noise to be added after aggregation
+    noise_standard_deviation: (BigUint, BigUint),
 }
 
 impl<T, F, SPoly, SBlindPoly> FixedPointBoundedL2VecSum<T, F, SPoly, SBlindPoly>
@@ -227,7 +250,9 @@ where
     u128: TryFrom<F::Integer>,
 {
     /// Return a new [`FixedPointBoundedL2VecSum`] type parameter. Each value of this type is a
-    /// fixed point vector with `entries` entries.
+    /// fixed point vector with `entries` entries. The aggregation result will satisfy
+    /// `1/2 * privacy_parameter^2` zero-concentrated differential privacy after the
+    /// `add_noise` function is called on it.
     pub fn new(entries: usize, privacy_parameter: PrivacyParameterType) -> Result<Self, FlpError> {
         // (0) initialize constants
         let fi_one = F::Integer::from(F::one());
@@ -311,7 +336,8 @@ where
             BigUint::from(privacy_parameter.0),
             BigUint::from(privacy_parameter.1),
         );
-        let noise_parameter = compute_std_deviation(privacy_parameter, bits_per_entry);
+        let noise_standard_deviation =
+            compute_standard_deviation(privacy_parameter, bits_per_entry);
 
         Ok(Self {
             bits_per_entry,
@@ -332,7 +358,7 @@ where
             gadget1_chunk_len,
 
             // configuration of dp noise
-            noise_parameter,
+            noise_standard_deviation,
         })
     }
 }
@@ -565,7 +591,7 @@ where
             // the i128 value, which we put into the field.
 
             // 1. get noise
-            let (ref a, ref b) = self.noise_parameter;
+            let (ref a, ref b) = self.noise_standard_deviation;
             let noise: BigInt =
                 sample_discrete_gaussian(a, b).map_err(|e| FlpError::Noise(e.to_string()))?;
 
