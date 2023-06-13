@@ -206,7 +206,7 @@ pub fn zero_privacy_parameter() -> PrivacyParameterType {
 /// particular, exactly the following types are supported:
 /// `FixedI16<U15>`, `FixedI32<U31>` and `FixedI64<U63>`.
 ///
-/// The type provides an `add_noise` function that will add discrete Gaussian noise to the
+/// The type provides an `add_differential_privacy_noise` function that will add discrete Gaussian noise to the
 /// aggregate, calibrated to the privacy parameter given at object construction. This will result
 /// in the aggregate satisfying zero-concentrated differential privacy.
 ///
@@ -250,7 +250,7 @@ where
     /// Return a new [`FixedPointBoundedL2VecSum`] type parameter. Each value of this type is a
     /// fixed point vector with `entries` entries. The aggregation result will satisfy
     /// `1/2 * privacy_parameter^2` zero-concentrated differential privacy after the
-    /// `add_noise` function is called on it.
+    /// `add_differential_privacy_noise` function is called on it.
     pub fn new(entries: usize, privacy_parameter: PrivacyParameterType) -> Result<Self, FlpError> {
         // (0) initialize constants
         let fi_one = u128::from(Field128::one());
@@ -581,24 +581,28 @@ where
         Ok(decoded_vector)
     }
 
-    fn add_noise(&self, aggregate_share: &mut Vec<Field128>) -> Result<(), FlpError> {
-        let get_noise = || -> Result<u128, FlpError> {
+    fn add_differential_privacy_noise(
+        &self,
+        aggregate_share: &mut [Field128],
+    ) -> Result<(), FlpError> {
+        // generate and add discrete gaussian noise for each entry
+        for entry in aggregate_share.iter_mut() {
             // we get the noise as bigint, so we have to convert it to i128,
             // for this we compute its modulo wrt the field modulus, then get
             // the i128 value, which we put into the field.
 
             // 1. get noise
             let (ref a, ref b) = self.noise_standard_deviation;
-            let noise: BigInt =
-                sample_discrete_gaussian(a, b).map_err(|e| FlpError::Noise(e.to_string()))?;
+            let noise: BigInt = sample_discrete_gaussian(a, b)
+                .map_err(|e| FlpError::DifferentialPrivacyNoise(e.to_string()))?;
 
             // 2. noise as i128
             let noise: BigInt = noise % BigInt::from(Field128::modulus());
-            let noise: i128 = noise
-                .try_into()
-                .map_err(|e: TryFromBigIntError<BigInt>| FlpError::Noise(e.to_string()))?;
+            let noise: i128 = noise.try_into().map_err(|e: TryFromBigIntError<BigInt>| {
+                FlpError::DifferentialPrivacyNoise(e.to_string())
+            })?;
 
-            // Compute the field integer corresponding to the i128 value.
+            // Compute the field element corresponding to the i128 value.
             //
             // For this we compute the absolute value of the noise,
             // put it into the field, and then invert that field value
@@ -613,14 +617,9 @@ where
             } else {
                 f_pos_noise
             };
-            let fi_noise = u128::from(f_noise);
 
-            Ok(fi_noise)
-        };
-
-        // Generate noise for, and apply to each entry of the aggregate share.
-        for entry in aggregate_share.iter_mut() {
-            *entry += get_noise()?.into();
+            // apply generated noise to each entry of the aggregate share.
+            *entry += f_noise;
         }
 
         Ok(())
@@ -778,7 +777,7 @@ mod tests {
         let mut v = vsum
             .truncate(vsum.encode_measurement(&fp_vec).unwrap())
             .unwrap();
-        let _ = &vsum.add_noise(&mut v).unwrap();
+        let _ = &vsum.add_differential_privacy_noise(&mut v).unwrap();
         assert_ne!(
             vsum.decode_result(&v, 1).unwrap(),
             vec!(0.25, 0.125, 0.0625)

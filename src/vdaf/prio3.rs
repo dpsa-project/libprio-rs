@@ -1145,14 +1145,19 @@ where
     }
 
     #[cfg(feature = "experimental")]
-    /// Add noise for this prio3 type.
+    /// Add noise for this prio3 type to obtain differential privacy.
     fn postprocess(
         &self,
         _agg_param: &Self::AggregationParam,
         agg_share: &mut Self::AggregateShare,
     ) -> Result<(), VdafError> {
-        self.typ.add_noise(&mut agg_share.0)?;
-
+        let len_before = agg_share.0.len();
+        self.typ.add_differential_privacy_noise(&mut agg_share.0)?;
+        if len_before != agg_share.0.len() {
+            return Err(VdafError::Uncategorized(
+                "add_noise changed length of aggregate share.".to_string(),
+            ));
+        }
         Ok(())
     }
 }

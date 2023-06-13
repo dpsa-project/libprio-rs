@@ -107,7 +107,7 @@ pub enum FlpError {
     #[cfg(feature = "experimental")]
     /// An error happened during noising.
     #[error("noise error: {0}")]
-    Noise(String),
+    DifferentialPrivacyNoise(String),
 
     /// Unit test error.
     #[cfg(test)]
@@ -550,9 +550,12 @@ pub trait Type: Sized + Eq + Clone + Debug {
     }
 
     #[cfg(feature = "experimental")]
-    /// Optionally add noise to the aggregate share.
+    /// Optionally add noise to the aggregate share to obtain differential privacy.
     /// Post-condition: The size of `_aggregate_share` has not changed.
-    fn add_noise(&self, _aggregate_share: &mut Vec<Self::Field>) -> Result<(), FlpError> {
+    fn add_differential_privacy_noise(
+        &self,
+        _aggregate_share: &mut [Self::Field],
+    ) -> Result<(), FlpError> {
         Ok(())
     }
 }
