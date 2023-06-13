@@ -169,12 +169,12 @@ use std::{convert::TryFrom, convert::TryInto, fmt::Debug, marker::PhantomData};
 use self::noise::compute_std_deviation;
 
 /// The privacy parameter which is passed to `FixedPointBoundedL2VecSum` has this type.
-pub type PrivacyParameterType = (u128, u128);
+pub type PrivacyParameterType = (BigUint, BigUint);
 
 /// If no noise should be added during aggregation, use the value returned by this function as
 /// privacy parameter.
 pub fn zero_privacy_parameter() -> PrivacyParameterType {
-    (1, 0)
+    (1u32.into(), 0u32.into())
 }
 
 /// The fixed point vector sum data type. Each measurement is a vector of fixed point numbers of
@@ -737,7 +737,7 @@ mod tests {
         type Psb = ParallelSum<Field128, BlindPolyEval<Field128>>;
 
         let vsum: FixedPointBoundedL2VecSum<F, Field128, Ps, Psb> =
-            FixedPointBoundedL2VecSum::new(3, (100, 3)).unwrap();
+            FixedPointBoundedL2VecSum::new(3, (BigUint::from(100u32), BigUint::from(3u32))).unwrap();
         let one = Field128::one();
         // Round trip
         assert_eq!(
