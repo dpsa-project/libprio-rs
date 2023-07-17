@@ -3,7 +3,7 @@
 //! A [`Type`] for summing vectors of fixed point numbers where the
 //! [L2 norm](https://en.wikipedia.org/wiki/Norm_(mathematics)#Euclidean_norm)
 //! of each vector is bounded by `1` and adding [discrete Gaussian
-//! noise](https://arxiv.org/abs/2004.00010) in order to achieve central
+//! noise](https://arxiv.org/pdf/2004.00010.pdf) in order to achieve central
 //! differential privacy.
 //!
 //! In the following a high level overview over the inner workings of this type
@@ -146,7 +146,7 @@
 //! sensitivicy of the procedure is equal to two times the norm bound, namely
 //! `2^n`. Therefore, adding discrete Gaussian noise with standard deviation
 //! `sigma = `(2^n)/eps` for some `eps` will make the procedure [`(eps^2)/2`
-//! zero-concentrated differentially private](https://arxiv.org/abs/2004.00010).
+//! zero-concentrated differentially private](https://arxiv.org/pdf/2004.00010.pdf).
 //! `eps` is given as a parameter for type construction. Projecting onto the
 //! field and decoding retains the privacy guarantee due to post-processing
 //! invariance.
