@@ -94,7 +94,7 @@ fn sample_bernoulli_exp<R: Rng + ?Sized>(gamma: &Ratio<BigUint>, rng: &mut R) ->
             }
         }
     } else {
-        for _ in range_inclusive(BigUint::one(), gamma.floor().to_integer() + 1u8) {
+        for _ in range_inclusive(BigUint::one(), gamma.floor().to_integer()) {
             if !sample_bernoulli_exp(&Ratio::<BigUint>::one(), rng) {
                 return false;
             }
