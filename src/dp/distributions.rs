@@ -42,179 +42,168 @@
 //!
 //! Follows
 //!     Clément Canonne, Gautam Kamath, Thomas Steinke. The Discrete Gaussian for Differential Privacy. 2020.
-//!     <https://arxiv.org/abs/2004.00010>
+//!     <https://arxiv.org/pdf/2004.00010.pdf>
 
-use num_bigint::{BigInt, BigUint};
+use num_bigint::{BigInt, BigUint, UniformBigUint};
+use num_integer::Integer;
+use num_iter::range_inclusive;
 use num_rational::Ratio;
 use num_traits::{One, Zero};
-use rand::{distributions::Distribution, distributions::Uniform, Rng};
+use rand::{distributions::uniform::UniformSampler, distributions::Distribution, Rng};
 
 use super::{
     DifferentialPrivacyBudget, DifferentialPrivacyDistribution, DifferentialPrivacyStrategy,
     DpError, ZCdpBudget,
 };
 
-/// sample from the Bernoulli(1/2) distribution.
+/// Sample from the Bernoulli(gamma) distribution, where $gamma /leq 1$.
 ///
-/// `sample_bernoulli_standard(rng)` returns numbers distributed as $Bernoulli(1/2)$.
-/// using the given random number generator for base randomness.
-fn sample_bernoulli_standard<R: Rng + ?Sized>(rng: &mut R) -> bool {
-    let mut buffer = [0u8; 1];
-    rng.fill_bytes(&mut buffer);
-    buffer[0] & 1 == 1
-}
-
-/// sample from the Bernoulli(gamma) distribution, where $gamma /leq 1$.
+/// `sample_bernoulli(gamma, rng)` returns numbers distributed as $Bernoulli(gamma)$.
+/// using the given random number generator for base randomness. The procedure is as described
+/// on page 30 of [[CKS20]].
 ///
-/// `sample_bernoulli_frac(gamma, rng)` returns numbers distributed as $Bernoulli(gamma)$.
-/// using the given random number generator for base randomness.
-fn sample_bernoulli_frac<R: Rng + ?Sized>(gamma: &Ratio<BigUint>, rng: &mut R) -> bool {
+/// [CKS20]: https://arxiv.org/pdf/2004.00010.pdf
+fn sample_bernoulli<R: Rng + ?Sized>(gamma: &Ratio<BigUint>, rng: &mut R) -> bool {
     let d = gamma.denom();
     assert!(!d.is_zero());
     assert!(gamma <= &Ratio::<BigUint>::one());
 
-    // sample uniform biguint in [0,d)
-    let s = rng.gen_range(BigUint::zero()..d.clone());
+    // sample uniform biguint in {1,...,d}
+    // uses the implementation of rand::Uniform for num_bigint::BigUint
+    let s = UniformBigUint::sample_single_inclusive(BigUint::one(), d, rng);
 
-    s < *gamma.numer()
+    s <= *gamma.numer()
 }
 
-/// sample from the Bernoulli(exp(-gamma)) distribution, where $gamma \leq 1$.
-///
-/// `sample_bernoulli_exp1(gamma, rng)` returns numbers distributed as $Bernoulli(exp(-gamma))$.
-/// using the given random number generator for base randomness.
-fn sample_bernoulli_exp1<R: Rng + ?Sized>(gamma: &Ratio<BigUint>, rng: &mut R) -> bool {
-    assert!(!gamma.denom().is_zero());
-    assert!(gamma <= &Ratio::<BigUint>::one());
-    let mut k = BigUint::one();
-    loop {
-        if sample_bernoulli_frac(&(gamma / k.clone()), rng) {
-            k += 1u8;
-        } else {
-            return !(k % BigUint::from(2u8)).is_zero();
-        }
-    }
-}
-
-/// sample from the Bernoulli(exp(-gamma)) distribution.
+/// Sample from the Bernoulli(exp(-gamma)) distribution.
 ///
 /// `sample_bernoulli_exp(gamma, rng)` returns numbers distributed as $Bernoulli(exp(-gamma))$,
-/// using the given random number generator for base randomness.
+/// using the given random number generator for base randomness. Follows Algorithm 1 of [[CKS20]].
+///
+/// [CKS20]: https://arxiv.org/pdf/2004.00010.pdf
 fn sample_bernoulli_exp<R: Rng + ?Sized>(gamma: &Ratio<BigUint>, rng: &mut R) -> bool {
     assert!(!gamma.denom().is_zero());
-    // sample floor(n/d) independent Bernoulli(exp(-1))
-    // If all are 1, return Bernoulli(exp(-(gamma-floor(gamma))))
-    let mut gamma: Ratio<BigUint> = gamma.clone();
-    while Ratio::<BigUint>::one() < gamma {
-        if !sample_bernoulli_exp1(&Ratio::<BigUint>::one(), rng) {
-            return false;
-        }
-        gamma -= Ratio::<BigUint>::one();
-    }
-    sample_bernoulli_exp1(&gamma, rng)
-}
 
-/// sample from the geometric distribution with parameter 1 - exp(-gamma) (slow).
-///
-/// `sample_geometric_exp_slow(gamma, rng)` returns numbers distributed according to
-/// $Geometric(1 - exp(-gamma))$, using the given random number generator for base randomness.
-fn sample_geometric_exp_slow<R: Rng + ?Sized>(gamma: &Ratio<BigUint>, rng: &mut R) -> BigUint {
-    assert!(!gamma.denom().is_zero());
-    let mut k = BigUint::zero();
-    loop {
-        if sample_bernoulli_exp(gamma, rng) {
-            k += 1u8;
-        } else {
-            return k;
+    if gamma <= &Ratio::<BigUint>::one() {
+        let mut k = BigUint::one();
+        loop {
+            if sample_bernoulli(&(gamma / k.clone()), rng) {
+                k += 1u8;
+            } else {
+                return k.is_odd();
+            }
         }
+    } else {
+        for _ in range_inclusive(BigUint::one(), gamma.floor().to_integer() + 1u8) {
+            if !sample_bernoulli_exp(&Ratio::<BigUint>::one(), rng) {
+                return false;
+            }
+        }
+        sample_bernoulli_exp(&(gamma - gamma.floor()), rng)
     }
 }
 
-/// sample from the geometric distribution  with parameter 1 - exp(-gamma) (fast).
+/// Sample from the geometric distribution  with parameter 1 - exp(-gamma).
 ///
-/// `sample_geometric_exp_fast(gamma, rng)` returns numbers distributed according to
+/// `sample_geometric_exp(gamma, rng)` returns numbers distributed according to
 /// $Geometric(1 - exp(-gamma))$, using the given random number generator for base randomness.
-fn sample_geometric_exp_fast<R: Rng + ?Sized>(gamma: &Ratio<BigUint>, rng: &mut R) -> BigUint {
-    let d = gamma.denom();
-    assert!(!d.is_zero());
+/// The code follows all but the last three lines of Algorithm 2 in [[CKS20]].
+///
+/// [CKS20]: https://arxiv.org/pdf/2004.00010.pdf
+fn sample_geometric_exp<R: Rng + ?Sized>(gamma: &Ratio<BigUint>, rng: &mut R) -> BigUint {
+    let (s, t) = (gamma.numer(), gamma.denom());
+    assert!(!t.is_zero());
     if gamma.is_zero() {
         return BigUint::zero();
     }
 
-    // sample uniform biguint in [0,d)
-    let usampler = Uniform::new(BigUint::zero(), d);
+    // sampler for uniform biguint in {0...t-1}
+    // uses the implementation of rand::Uniform for num_bigint::BigUint
+    let usampler = UniformBigUint::new(BigUint::zero(), t);
     let mut u = usampler.sample(rng);
 
-    while !sample_bernoulli_exp(&Ratio::<BigUint>::new(u.clone(), d.clone()), rng) {
+    while !sample_bernoulli_exp(&Ratio::<BigUint>::new(u.clone(), t.clone()), rng) {
         u = usampler.sample(rng);
     }
 
-    let v2 = sample_geometric_exp_slow(&Ratio::<BigUint>::one(), rng);
-    v2 * d + u / gamma.numer()
+    let mut v = BigUint::zero();
+    loop {
+        if sample_bernoulli_exp(&Ratio::<BigUint>::one(), rng) {
+            v += 1u8;
+        } else {
+            break;
+        }
+    }
+
+    // we do integer division, so the following term equals floor((u + t*v)/s)
+    (u + t * v) / s
 }
 
-/// sample from the discrete laplace distribution.
+/// Sample from the discrete Laplace distribution.
 ///
 /// `sample_discrete_laplace(scale, rng)` returns numbers distributed according to
 /// $\mathcal{L}_\mathbb{Z}(0, scale)$, using the given random number generator for base randomness.
+/// This follows Algorithm 2 of [[CKS20]], using a subfunction for geometric sampling.
 ///
-/// # Citation
-/// * [CKS20 The Discrete Gaussian for Differential Privacy](https://arxiv.org/abs/2004.00010)
+/// [CKS20]: https://arxiv.org/pdf/2004.00010.pdf
 fn sample_discrete_laplace<R: Rng + ?Sized>(scale: &Ratio<BigUint>, rng: &mut R) -> BigInt {
-    let (n, d) = (scale.numer(), scale.denom());
-    assert!(!d.is_zero());
-    if n.is_zero() {
+    let (s, t) = (scale.numer(), scale.denom());
+    assert!(!t.is_zero());
+    if s.is_zero() {
         return BigInt::zero();
     }
 
     loop {
-        let negative = sample_bernoulli_standard(rng);
-        let magnitude: BigInt = sample_geometric_exp_fast(&scale.recip(), rng).into();
-        if negative || !magnitude.is_zero() {
-            return if negative { -magnitude } else { magnitude };
+        let negative = sample_bernoulli(&Ratio::<BigUint>::new(BigUint::one(), 2u8.into()), rng);
+        let y: BigInt = sample_geometric_exp(&scale.recip(), rng).into();
+        if negative && y.is_zero() {
+            continue;
+        } else {
+            return if negative { -y } else { y };
         }
     }
 }
 
-/// sample from the discrete gaussian distribution.
+/// Sample from the discrete Gaussian distribution.
 ///
 /// `sample_discrete_gaussian(sigma, rng)` returns `BigInt` numbers distributed as
-/// $\mathcal{N}_\mathbb{Z}(0, sigma^2)$,
-/// using the given random number generator for base randomness.
+/// $\mathcal{N}_\mathbb{Z}(0, sigma^2)$, using the given random number generator for base
+/// randomness. Follows Algorithm 3 from [[CKS20]].
 ///
-/// # Citation
-/// * [CKS20 The Discrete Gaussian for Differential Privacy](https://arxiv.org/abs/2004.00010)
+/// [CKS20]: https://arxiv.org/pdf/2004.00010.pdf
 fn sample_discrete_gaussian<R: Rng + ?Sized>(sigma: &Ratio<BigUint>, rng: &mut R) -> BigInt {
     assert!(!sigma.denom().is_zero());
     if sigma.is_zero() {
         return 0.into();
     }
     let t = sigma.floor() + BigUint::one();
+    let sub = sigma.pow(2) / t.clone();
     loop {
         let y = sample_discrete_laplace(&t, rng);
 
         // absolute value without type conversion
         let y_abs: Ratio<BigUint> = BigUint::new(y.to_u32_digits().1).into();
 
-        let sub = sigma.pow(2) / t.clone();
         let fact = (sigma.pow(2) * BigUint::from(2u8)).recip();
 
-        let prob: Ratio<BigUint> = if y_abs < sub {
-            (sub - y_abs).pow(2) * fact
+        // unsigned subtraction-followed-by-square
+        let prob: Ratio<BigUint> = if y_abs < sub.clone() {
+            (sub.clone() - y_abs).pow(2) * fact
         } else {
-            (y_abs - sub).pow(2) * fact
+            (y_abs - sub.clone()).pow(2) * fact
         };
+
         if sample_bernoulli_exp(&prob, rng) {
             return y;
         }
     }
 }
 
-/// samples `BigInt` numbers according to the discrete Gaussian distribution with mean zero.
+/// Samples `BigInt` numbers according to the discrete Gaussian distribution with mean zero.
 /// The distribution is defined over the integers, represented by arbitrary-precision integers.
 /// The sampling procedure follows [[CKS20]].
 ///
-/// [CKS20]: https://arxiv.org/abs/2004.00010
+/// [CKS20]: https://arxiv.org/pdf/2004.00010.pdf
 #[derive(Clone, Debug)]
 pub struct DiscreteGaussian {
     /// The standard deviation of the distribution.
