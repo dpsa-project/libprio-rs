@@ -3,7 +3,7 @@
 //! A [`Type`] for summing vectors of fixed point numbers where the
 //! [L2 norm](https://en.wikipedia.org/wiki/Norm_(mathematics)#Euclidean_norm)
 //! of each vector is bounded by `1` and adding [discrete Gaussian
-//! noise](https://arxiv.org/abs/2004.00010) in order to achieve central
+//! noise](https://arxiv.org/abs/2004.00010) in order to achieve server
 //! differential privacy.
 //!
 //! In the following a high level overview over the inner workings of this type
@@ -195,9 +195,9 @@ use std::{convert::TryFrom, convert::TryInto, fmt::Debug, marker::PhantomData};
 /// particular, exactly the following types are supported:
 /// `FixedI16<U15>`, `FixedI32<U31>` and `FixedI64<U63>`.
 ///
-/// The type provides an [`add_noise`] function that adds discrete Gaussian noise to an
-/// aggregate result, calibrated to the passed privacy budget. This will result
-/// in the aggregate satisfying zero-concentrated differential privacy.
+/// The type implements the [`TypeWithNoise`] trait. The [`add_noise_to_result`] function adds
+/// discrete Gaussian noise to an aggregate share, calibrated to the passed privacy budget.
+/// This will result in the aggregate satisfying zero-concentrated differential privacy.
 ///
 /// Depending on the size of the vector that needs to be transmitted, a corresponding field type has
 /// to be chosen for `F`. For a `n`-bit fixed point type and a `d`-dimensional vector, the field
@@ -347,7 +347,7 @@ where
         })
     }
 
-    /// This noising function can be called on the aggregation result to make
+    /// This noising function can be called on the aggregate share to make
     /// the entire aggregation process differentially private. The noise is
     /// calibrated to result in a guarantee of `1/2 * epsilon^2` zero-concentrated
     /// differential privacy, where `epsilon` is given by `dp_strategy.budget`.

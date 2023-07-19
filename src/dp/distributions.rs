@@ -226,7 +226,7 @@ impl DiscreteGaussian {
     /// standard deviation and mean zero. Errors if the input has denominator zero.
     pub fn new(std: Ratio<BigUint>) -> Result<DiscreteGaussian, DpError> {
         if std.denom().is_zero() {
-            return Err(DpError::ZeroDenominator());
+            return Err(DpError::ZeroDenominator);
         }
         Ok(DiscreteGaussian { std })
     }

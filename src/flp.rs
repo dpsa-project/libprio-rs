@@ -558,7 +558,7 @@ pub trait TypeWithNoise<S>: Type
 where
     S: DifferentialPrivacyStrategy,
 {
-    /// Optionally add noise to the aggregate share to obtain differential privacy.
+    /// Add noise to the aggregate share to obtain differential privacy.
     fn add_noise_to_result(
         &self,
         _dp_strategy: &S,

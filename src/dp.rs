@@ -12,11 +12,11 @@ pub enum DpError {
         "DP error: input value was not a valid privacy parameter. \
              It should to be a non-negative, finite float."
     )]
-    InvalidFloat(),
+    InvalidFloat,
 
     /// Tried to construct a rational number with zero denominator.
     #[error("DP error: input denominator was zero.")]
-    ZeroDenominator(),
+    ZeroDenominator,
 
     /// Tried to convert BigInt into something incompatible.
     #[error("DP error: {0}")]
@@ -29,15 +29,15 @@ pub enum DpError {
 pub struct Rational(Ratio<BigUint>);
 
 impl Rational {
-    /// Construct a [`Rational`] number from numerator and denominator. Errors if denominator is zero.
+    /// Construct a [`Rational`] number from numerator `n` and denominator `d`. Errors if denominator is zero.
     pub fn from_unsigned<T>(n: T, d: T) -> Result<Self, DpError>
     where
         T: Into<u128>,
     {
         // we don't want to expose BigUint in the public api, hence the Into<u128> bound
         let d = d.into();
-        if d == 0u128 {
-            Err(DpError::ZeroDenominator())
+        if d == 0 {
+            Err(DpError::ZeroDenominator)
         } else {
             Ok(Rational(Ratio::<BigUint>::new(n.into().into(), d.into())))
         }
@@ -46,13 +46,13 @@ impl Rational {
 
 impl TryFrom<f32> for Rational {
     type Error = DpError;
-    fn try_from(value: f32) -> Result<Self, Self::Error> {
+    fn try_from(value: f32) -> Result<Self, DpError> {
         match BigRational::from_float(value) {
             Some(y) => Ok(Rational(Ratio::<BigUint>::new(
                 y.numer().clone().try_into()?,
                 y.denom().clone().try_into()?,
             ))),
-            None => Err(DpError::InvalidFloat())?,
+            None => Err(DpError::InvalidFloat)?,
         }
     }
 }
@@ -79,7 +79,7 @@ impl ZCdpBudget {
     ///
     /// [CKS20]: https://arxiv.org/pdf/2004.00010.pdf
     pub fn new(epsilon: Rational) -> Self {
-        ZCdpBudget { epsilon: epsilon.0 }
+        Self { epsilon: epsilon.0 }
     }
 }
 
@@ -91,8 +91,10 @@ pub trait DifferentialPrivacyStrategy {
     /// The type of the DP budget, i.e. the variant of differential privacy that can be obtained
     /// by using this strategy.
     type Budget: DifferentialPrivacyBudget;
+
     /// The distribution type this strategy will use to generate the noise.
     type Distribution: DifferentialPrivacyDistribution;
+
     /// The type the sensitivity used for privacy analysis has.
     type Sensitivity;
 
