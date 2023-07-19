@@ -66,12 +66,9 @@ pub trait DifferentialPrivacyDistribution {}
 /// Zero-concentrated differential privacy (ZCDP) budget as defined in [[BS16]].
 ///
 /// [BS16]: https://arxiv.org/pdf/1605.02065.pdf
-pub struct ZeroConcentratedDifferentialPrivacyBudget {
+pub struct ZCdpBudget {
     epsilon: Ratio<BigUint>,
 }
-
-/// Alias for ZeroConcentratedDifferentialPrivacyBudget.
-pub type ZCdpBudget = ZeroConcentratedDifferentialPrivacyBudget;
 
 impl ZCdpBudget {
     /// Create a budget for parameter `epsilon`, using the notation from [[CKS20]] where `rho = (epsilon**2)/2`
@@ -83,7 +80,7 @@ impl ZCdpBudget {
     }
 }
 
-impl DifferentialPrivacyBudget for ZeroConcentratedDifferentialPrivacyBudget {}
+impl DifferentialPrivacyBudget for ZCdpBudget {}
 
 /// Strategy to make aggregate results differentially private, e.g. by adding noise from a specific
 /// type of distribution instantiated with a given DP budget.
