@@ -294,8 +294,8 @@ mod tests {
         let samples1: Vec<i8> = (0..10)
             .map(|_| i8::try_from(sampler.sample(&mut rng)).unwrap())
             .collect();
-        assert_eq!(samples, vec!(3, 8, -7, 1, 2, 10, 8, -3, 0, 0));
-        assert_eq!(samples1, vec!(-1, 2, 5, -1, -1, 3, 3, -1, -1, 3));
+        assert_eq!(samples, vec!(5, -7, 10, -6, 0, -2, -3, 5, -2, -3));
+        assert_eq!(samples1, vec!(0, 4, 0, 1, 4, -5, 7, 10, 3, -9));
     }
 
     #[test]

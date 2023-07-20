@@ -27,7 +27,7 @@ thiserror = "1.0"
 
 # dependencies required if feature "experimental" is enabled
 fixed = { version = "1.23", optional = true }
-num-bigint = { version = "0.4.3", optional = true, features = ["rand"] }
+num-bigint = { version = "0.4.3", optional = true, features = ["rand", "serde"] }
 num-integer = { version = "0.1.45", optional = true }
 num-iter = { version = "0.1.43", optional = true }
 num-rational = { version = "0.4.1", optional = true }
@@ -96,6 +96,11 @@ rustdoc-args = ["--cfg", "docsrs"]
 name = "backward_compatibility"
 path = "tests/backward_compatibility.rs"
 required-features = ["prio2"]
+
+[[test]]
+name = "discrete_gauss"
+path = "tests/discrete_gauss.rs"
+required-features = ["experimental"]
 
 [package.metadata.cargo-all-features]
 skip_optional_dependencies = true

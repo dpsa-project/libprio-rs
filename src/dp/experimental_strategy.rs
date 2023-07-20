@@ -102,9 +102,9 @@ mod tests {
         let sample3 = distribution.1.sample(&mut rng);
 
         // And check that they are deterministic.
-        assert_eq!(i8::try_from(sample0).unwrap(), 16);
-        assert_eq!(i8::try_from(sample1).unwrap(), -6);
-        assert_eq!(i8::try_from(sample2).unwrap(), -7);
-        assert_eq!(i8::try_from(sample3).unwrap(), 8);
+        assert_eq!(i8::try_from(sample0).unwrap(), 6);
+        assert_eq!(i8::try_from(sample1).unwrap(), 19);
+        assert_eq!(i8::try_from(sample2).unwrap(), 19);
+        assert_eq!(i8::try_from(sample3).unwrap(), -4);
     }
 }
