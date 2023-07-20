@@ -187,20 +187,23 @@ fn sample_discrete_gaussian<R: Rng + ?Sized>(sigma: &Ratio<BigUint>, rng: &mut R
         return 0.into();
     }
     let t = sigma.floor() + BigUint::one();
-    let sub = sigma.pow(2) / t.clone();
+
+    // no need to compute these parts of the probability term every iteration
+    let summand = sigma.pow(2) / t.clone();
+    // compute probablilty of accepting the laplace sample y
+    let prob = |term: Ratio<BigUint>| term.pow(2) * (sigma.pow(2) * BigUint::from(2u8)).recip();
+
     loop {
         let y = sample_discrete_laplace(&t, rng);
 
         // absolute value without type conversion
         let y_abs: Ratio<BigUint> = BigUint::new(y.to_u32_digits().1).into();
 
-        let fact = (sigma.pow(2) * BigUint::from(2u8)).recip();
-
         // unsigned subtraction-followed-by-square
-        let prob: Ratio<BigUint> = if y_abs < sub.clone() {
-            (sub.clone() - y_abs).pow(2) * fact
+        let prob: Ratio<BigUint> = if y_abs < summand {
+            prob(summand.clone() - y_abs)
         } else {
-            (y_abs - sub.clone()).pow(2) * fact
+            prob(y_abs - summand.clone())
         };
 
         if sample_bernoulli_exp(&prob, rng) {
