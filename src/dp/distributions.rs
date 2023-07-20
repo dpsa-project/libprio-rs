@@ -75,32 +75,42 @@ fn sample_bernoulli<R: Rng + ?Sized>(gamma: &Ratio<BigUint>, rng: &mut R) -> boo
     s <= *gamma.numer()
 }
 
+/// Sample from the Bernoulli(exp(-gamma)) distribution where `gamma` is in `[0,1]`.
+///
+/// `sample_bernoulli_exp1(gamma, rng)` returns numbers distributed as $Bernoulli(exp(-gamma))$,
+/// using the given random number generator for base randomness. Follows Algorithm 1 of [[CKS20]],
+/// splitting the branches into two non-recursive functions. This is the `gamma in [0,1]` branch.
+///
+/// [CKS20]: https://arxiv.org/pdf/2004.00010.pdf
+fn sample_bernoulli_exp1<R: Rng + ?Sized>(gamma: &Ratio<BigUint>, rng: &mut R) -> bool {
+    assert!(!gamma.denom().is_zero());
+    assert!(gamma <= &Ratio::<BigUint>::one());
+
+    let mut k = BigUint::one();
+    loop {
+        if sample_bernoulli(&(gamma / k.clone()), rng) {
+            k += 1u8;
+        } else {
+            return k.is_odd();
+        }
+    }
+}
+
 /// Sample from the Bernoulli(exp(-gamma)) distribution.
 ///
 /// `sample_bernoulli_exp(gamma, rng)` returns numbers distributed as $Bernoulli(exp(-gamma))$,
-/// using the given random number generator for base randomness. Follows Algorithm 1 of [[CKS20]].
+/// using the given random number generator for base randomness. Follows Algorithm 1 of [[CKS20]],
+/// splitting the branches into two non-recursive functions. This is the `gamma > 1` branch.
 ///
 /// [CKS20]: https://arxiv.org/pdf/2004.00010.pdf
 fn sample_bernoulli_exp<R: Rng + ?Sized>(gamma: &Ratio<BigUint>, rng: &mut R) -> bool {
     assert!(!gamma.denom().is_zero());
-
-    if gamma <= &Ratio::<BigUint>::one() {
-        let mut k = BigUint::one();
-        loop {
-            if sample_bernoulli(&(gamma / k.clone()), rng) {
-                k += 1u8;
-            } else {
-                return k.is_odd();
-            }
+    for _ in range_inclusive(BigUint::one(), gamma.floor().to_integer()) {
+        if !sample_bernoulli_exp1(&Ratio::<BigUint>::one(), rng) {
+            return false;
         }
-    } else {
-        for _ in range_inclusive(BigUint::one(), gamma.floor().to_integer()) {
-            if !sample_bernoulli_exp(&Ratio::<BigUint>::one(), rng) {
-                return false;
-            }
-        }
-        sample_bernoulli_exp(&(gamma - gamma.floor()), rng)
     }
+    sample_bernoulli_exp1(&(gamma - gamma.floor()), rng)
 }
 
 /// Sample from the geometric distribution  with parameter 1 - exp(-gamma).
@@ -122,13 +132,13 @@ fn sample_geometric_exp<R: Rng + ?Sized>(gamma: &Ratio<BigUint>, rng: &mut R) ->
     let usampler = UniformBigUint::new(BigUint::zero(), t);
     let mut u = usampler.sample(rng);
 
-    while !sample_bernoulli_exp(&Ratio::<BigUint>::new(u.clone(), t.clone()), rng) {
+    while !sample_bernoulli_exp1(&Ratio::<BigUint>::new(u.clone(), t.clone()), rng) {
         u = usampler.sample(rng);
     }
 
     let mut v = BigUint::zero();
     loop {
-        if sample_bernoulli_exp(&Ratio::<BigUint>::one(), rng) {
+        if sample_bernoulli_exp1(&Ratio::<BigUint>::one(), rng) {
             v += 1u8;
         } else {
             break;
