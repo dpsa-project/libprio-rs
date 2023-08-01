@@ -52,8 +52,6 @@ use crate::fft::{discrete_fourier_transform, discrete_fourier_transform_inv_fini
 use crate::field::{FftFriendlyFieldElement, FieldElement, FieldElementWithInteger, FieldError};
 use crate::fp::log2;
 use crate::polynomial::poly_eval;
-#[cfg(feature = "experimental")]
-use rand::Rng;
 use std::any::Any;
 use std::convert::TryFrom;
 use std::fmt::Debug;
@@ -111,7 +109,7 @@ pub enum FlpError {
     #[cfg(feature = "experimental")]
     /// An error happened during noising.
     #[error("differential privacy error: {0}")]
-    DifferentialPrivacy(crate::dp::DpError),
+    DifferentialPrivacy(#[from] crate::dp::DpError),
 
     /// Unit test error.
     #[cfg(test)]
@@ -560,14 +558,12 @@ pub trait TypeWithNoise<S>: Type
 where
     S: DifferentialPrivacyStrategy,
 {
-    /// Optionally add noise to the aggregate share to obtain differential privacy.
-    /// Post-condition: The size of `_aggregate_share` has not changed.
-    fn add_noise_to_agg_share<R: Rng>(
+    /// Add noise to the aggregate share to obtain differential privacy.
+    fn add_noise_to_result(
         &self,
         _dp_strategy: &S,
-        _agg_share: &mut [Self::Field],
+        _agg_result: &mut [Self::Field],
         _num_measurements: usize,
-        _rng: &mut R,
     ) -> Result<(), FlpError>;
 }
 

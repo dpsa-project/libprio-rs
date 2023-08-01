@@ -49,8 +49,6 @@ use crate::flp::Type;
 #[cfg(feature = "experimental")]
 use crate::flp::TypeWithNoise;
 use crate::prng::Prng;
-#[cfg(feature = "experimental")]
-use crate::vdaf::prg::SeedStreamSha3;
 use crate::vdaf::prg::{Prg, Seed};
 use crate::vdaf::{
     Aggregatable, AggregateShare, Aggregator, Client, Collector, OutputShare, PrepareTransition,
@@ -58,8 +56,6 @@ use crate::vdaf::{
 };
 #[cfg(feature = "experimental")]
 use fixed::traits::Fixed;
-#[cfg(feature = "experimental")]
-use rand_core::SeedableRng;
 use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::io::Cursor;
@@ -1170,20 +1166,8 @@ where
         agg_share: &mut Self::AggregateShare,
         num_measurements: usize,
     ) -> Result<(), VdafError> {
-        let mut rng = SeedStreamSha3::from_seed(Seed::from_bytes([0u8; 16]));
-
-        let len_before = agg_share.0.len();
-        self.typ.add_noise_to_agg_share(
-            dp_strategy,
-            &mut agg_share.0,
-            num_measurements,
-            &mut rng,
-        )?;
-        if len_before != agg_share.0.len() {
-            return Err(VdafError::Uncategorized(
-                "add_noise changed length of aggregate share.".to_string(),
-            ));
-        }
+        self.typ
+            .add_noise_to_result(dp_strategy, &mut agg_share.0, num_measurements)?;
         Ok(())
     }
 }

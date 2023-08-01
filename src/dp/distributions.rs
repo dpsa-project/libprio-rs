@@ -213,9 +213,9 @@ pub struct DiscreteGaussian {
 impl DiscreteGaussian {
     /// Create a new sampler from the Discrete Gaussian Distribution with the given
     /// standard deviation and mean zero. Errors if the input has denominator zero.
-    pub fn new_checked(std: Ratio<BigUint>) -> Result<DiscreteGaussian, DpError> {
+    pub fn new(std: Ratio<BigUint>) -> Result<DiscreteGaussian, DpError> {
         if std.denom().is_zero() {
-            return Err(DpError::ZeroDenominator());
+            return Err(DpError::ZeroDenominator);
         }
         Ok(DiscreteGaussian { std })
     }
@@ -262,10 +262,7 @@ impl DifferentialPrivacyStrategy for DiscreteGaussianDpStrategy<ZCdpBudget> {
         &self,
         sensitivity: Ratio<BigUint>,
     ) -> Result<DiscreteGaussian, DpError> {
-        match DiscreteGaussian::new_checked(sensitivity / self.budget.epsilon.clone()) {
-            Ok(d) => Ok(d),
-            Err(e) => Err(e),
-        }
+        DiscreteGaussian::new(sensitivity / self.budget.epsilon.clone())
     }
 }
 
@@ -283,8 +280,7 @@ mod tests {
     #[test]
     fn test_discrete_gaussian() {
         let sampler =
-            DiscreteGaussian::new_checked(Ratio::<BigUint>::from_integer(BigUint::from(5u8)))
-                .unwrap();
+            DiscreteGaussian::new(Ratio::<BigUint>::from_integer(BigUint::from(5u8))).unwrap();
 
         // check samples are consistent
         let mut rng = SeedStreamSha3::from_seed(Seed::from_bytes([0u8; 16]));
@@ -305,8 +301,7 @@ mod tests {
     fn test_zcdp_discrete_gaussian() {
         // sample from a manually created distribution
         let sampler1 =
-            DiscreteGaussian::new_checked(Ratio::<BigUint>::from_integer(BigUint::from(4u8)))
-                .unwrap();
+            DiscreteGaussian::new(Ratio::<BigUint>::from_integer(BigUint::from(4u8))).unwrap();
         let mut rng = SeedStreamSha3::from_seed(Seed::from_bytes([0u8; 16]));
         let samples1: Vec<i8> = (0..10)
             .map(|_| i8::try_from(sampler1.sample(&mut rng)).unwrap())
