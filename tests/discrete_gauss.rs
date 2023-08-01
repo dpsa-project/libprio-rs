@@ -40,7 +40,7 @@ fn discrete_gauss_reference() {
     ];
 
     for test_vector in test_vectors {
-        let sampler = DiscreteGaussian::new_checked(Ratio::<BigUint>::new(
+        let sampler = DiscreteGaussian::new(Ratio::<BigUint>::new(
             test_vector.std_num.into(),
             test_vector.std_denom.into(),
         ))
