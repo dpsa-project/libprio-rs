@@ -42,179 +42,181 @@
 //!
 //! Follows
 //!     Clément Canonne, Gautam Kamath, Thomas Steinke. The Discrete Gaussian for Differential Privacy. 2020.
-//!     <https://arxiv.org/abs/2004.00010>
+//!     <https://arxiv.org/pdf/2004.00010.pdf>
 
-use num_bigint::{BigInt, BigUint};
+use num_bigint::{BigInt, BigUint, UniformBigUint};
+use num_integer::Integer;
+use num_iter::range_inclusive;
 use num_rational::Ratio;
 use num_traits::{One, Zero};
-use rand::{distributions::Distribution, distributions::Uniform, Rng};
+use rand::{distributions::uniform::UniformSampler, distributions::Distribution, Rng};
 
 use super::{
     DifferentialPrivacyBudget, DifferentialPrivacyDistribution, DifferentialPrivacyStrategy,
     DpError, ZCdpBudget,
 };
 
-/// sample from the Bernoulli(1/2) distribution.
+/// Sample from the Bernoulli(gamma) distribution, where $gamma /leq 1$.
 ///
-/// `sample_bernoulli_standard(rng)` returns numbers distributed as $Bernoulli(1/2)$.
-/// using the given random number generator for base randomness.
-fn sample_bernoulli_standard<R: Rng + ?Sized>(rng: &mut R) -> bool {
-    let mut buffer = [0u8; 1];
-    rng.fill_bytes(&mut buffer);
-    buffer[0] & 1 == 1
-}
-
-/// sample from the Bernoulli(gamma) distribution, where $gamma /leq 1$.
+/// `sample_bernoulli(gamma, rng)` returns numbers distributed as $Bernoulli(gamma)$.
+/// using the given random number generator for base randomness. The procedure is as described
+/// on page 30 of [[CKS20]].
 ///
-/// `sample_bernoulli_frac(gamma, rng)` returns numbers distributed as $Bernoulli(gamma)$.
-/// using the given random number generator for base randomness.
-fn sample_bernoulli_frac<R: Rng + ?Sized>(gamma: &Ratio<BigUint>, rng: &mut R) -> bool {
+/// [CKS20]: https://arxiv.org/pdf/2004.00010.pdf
+fn sample_bernoulli<R: Rng + ?Sized>(gamma: &Ratio<BigUint>, rng: &mut R) -> bool {
     let d = gamma.denom();
     assert!(!d.is_zero());
     assert!(gamma <= &Ratio::<BigUint>::one());
 
-    // sample uniform biguint in [0,d)
-    let s = rng.gen_range(BigUint::zero()..d.clone());
+    // sample uniform biguint in {1,...,d}
+    // uses the implementation of rand::Uniform for num_bigint::BigUint
+    let s = UniformBigUint::sample_single_inclusive(BigUint::one(), d, rng);
 
-    s < *gamma.numer()
+    s <= *gamma.numer()
 }
 
-/// sample from the Bernoulli(exp(-gamma)) distribution, where $gamma \leq 1$.
+/// Sample from the Bernoulli(exp(-gamma)) distribution where `gamma` is in `[0,1]`.
 ///
-/// `sample_bernoulli_exp1(gamma, rng)` returns numbers distributed as $Bernoulli(exp(-gamma))$.
-/// using the given random number generator for base randomness.
+/// `sample_bernoulli_exp1(gamma, rng)` returns numbers distributed as $Bernoulli(exp(-gamma))$,
+/// using the given random number generator for base randomness. Follows Algorithm 1 of [[CKS20]],
+/// splitting the branches into two non-recursive functions. This is the `gamma in [0,1]` branch.
+///
+/// [CKS20]: https://arxiv.org/pdf/2004.00010.pdf
 fn sample_bernoulli_exp1<R: Rng + ?Sized>(gamma: &Ratio<BigUint>, rng: &mut R) -> bool {
     assert!(!gamma.denom().is_zero());
     assert!(gamma <= &Ratio::<BigUint>::one());
+
     let mut k = BigUint::one();
     loop {
-        if sample_bernoulli_frac(&(gamma / k.clone()), rng) {
+        if sample_bernoulli(&(gamma / k.clone()), rng) {
             k += 1u8;
         } else {
-            return !(k % BigUint::from(2u8)).is_zero();
+            return k.is_odd();
         }
     }
 }
 
-/// sample from the Bernoulli(exp(-gamma)) distribution.
+/// Sample from the Bernoulli(exp(-gamma)) distribution.
 ///
 /// `sample_bernoulli_exp(gamma, rng)` returns numbers distributed as $Bernoulli(exp(-gamma))$,
-/// using the given random number generator for base randomness.
+/// using the given random number generator for base randomness. Follows Algorithm 1 of [[CKS20]],
+/// splitting the branches into two non-recursive functions. This is the `gamma > 1` branch.
+///
+/// [CKS20]: https://arxiv.org/pdf/2004.00010.pdf
 fn sample_bernoulli_exp<R: Rng + ?Sized>(gamma: &Ratio<BigUint>, rng: &mut R) -> bool {
     assert!(!gamma.denom().is_zero());
-    // sample floor(n/d) independent Bernoulli(exp(-1))
-    // If all are 1, return Bernoulli(exp(-(gamma-floor(gamma))))
-    let mut gamma: Ratio<BigUint> = gamma.clone();
-    while Ratio::<BigUint>::one() < gamma {
+    for _ in range_inclusive(BigUint::one(), gamma.floor().to_integer()) {
         if !sample_bernoulli_exp1(&Ratio::<BigUint>::one(), rng) {
             return false;
         }
-        gamma -= Ratio::<BigUint>::one();
     }
-    sample_bernoulli_exp1(&gamma, rng)
+    sample_bernoulli_exp1(&(gamma - gamma.floor()), rng)
 }
 
-/// sample from the geometric distribution with parameter 1 - exp(-gamma) (slow).
+/// Sample from the geometric distribution  with parameter 1 - exp(-gamma).
 ///
-/// `sample_geometric_exp_slow(gamma, rng)` returns numbers distributed according to
+/// `sample_geometric_exp(gamma, rng)` returns numbers distributed according to
 /// $Geometric(1 - exp(-gamma))$, using the given random number generator for base randomness.
-fn sample_geometric_exp_slow<R: Rng + ?Sized>(gamma: &Ratio<BigUint>, rng: &mut R) -> BigUint {
-    assert!(!gamma.denom().is_zero());
-    let mut k = BigUint::zero();
-    loop {
-        if sample_bernoulli_exp(gamma, rng) {
-            k += 1u8;
-        } else {
-            return k;
-        }
-    }
-}
-
-/// sample from the geometric distribution  with parameter 1 - exp(-gamma) (fast).
+/// The code follows all but the last three lines of Algorithm 2 in [[CKS20]].
 ///
-/// `sample_geometric_exp_fast(gamma, rng)` returns numbers distributed according to
-/// $Geometric(1 - exp(-gamma))$, using the given random number generator for base randomness.
-fn sample_geometric_exp_fast<R: Rng + ?Sized>(gamma: &Ratio<BigUint>, rng: &mut R) -> BigUint {
-    let d = gamma.denom();
-    assert!(!d.is_zero());
+/// [CKS20]: https://arxiv.org/pdf/2004.00010.pdf
+fn sample_geometric_exp<R: Rng + ?Sized>(gamma: &Ratio<BigUint>, rng: &mut R) -> BigUint {
+    let (s, t) = (gamma.numer(), gamma.denom());
+    assert!(!t.is_zero());
     if gamma.is_zero() {
         return BigUint::zero();
     }
 
-    // sample uniform biguint in [0,d)
-    let usampler = Uniform::new(BigUint::zero(), d);
+    // sampler for uniform biguint in {0...t-1}
+    // uses the implementation of rand::Uniform for num_bigint::BigUint
+    let usampler = UniformBigUint::new(BigUint::zero(), t);
     let mut u = usampler.sample(rng);
 
-    while !sample_bernoulli_exp(&Ratio::<BigUint>::new(u.clone(), d.clone()), rng) {
+    while !sample_bernoulli_exp1(&Ratio::<BigUint>::new(u.clone(), t.clone()), rng) {
         u = usampler.sample(rng);
     }
 
-    let v2 = sample_geometric_exp_slow(&Ratio::<BigUint>::one(), rng);
-    v2 * d + u / gamma.numer()
+    let mut v = BigUint::zero();
+    loop {
+        if sample_bernoulli_exp1(&Ratio::<BigUint>::one(), rng) {
+            v += 1u8;
+        } else {
+            break;
+        }
+    }
+
+    // we do integer division, so the following term equals floor((u + t*v)/s)
+    (u + t * v) / s
 }
 
-/// sample from the discrete laplace distribution.
+/// Sample from the discrete Laplace distribution.
 ///
 /// `sample_discrete_laplace(scale, rng)` returns numbers distributed according to
 /// $\mathcal{L}_\mathbb{Z}(0, scale)$, using the given random number generator for base randomness.
+/// This follows Algorithm 2 of [[CKS20]], using a subfunction for geometric sampling.
 ///
-/// # Citation
-/// * [CKS20 The Discrete Gaussian for Differential Privacy](https://arxiv.org/abs/2004.00010)
+/// [CKS20]: https://arxiv.org/pdf/2004.00010.pdf
 fn sample_discrete_laplace<R: Rng + ?Sized>(scale: &Ratio<BigUint>, rng: &mut R) -> BigInt {
-    let (n, d) = (scale.numer(), scale.denom());
-    assert!(!d.is_zero());
-    if n.is_zero() {
+    let (s, t) = (scale.numer(), scale.denom());
+    assert!(!t.is_zero());
+    if s.is_zero() {
         return BigInt::zero();
     }
 
     loop {
-        let negative = sample_bernoulli_standard(rng);
-        let magnitude: BigInt = sample_geometric_exp_fast(&scale.recip(), rng).into();
-        if negative || !magnitude.is_zero() {
-            return if negative { -magnitude } else { magnitude };
+        let negative = sample_bernoulli(&Ratio::<BigUint>::new(BigUint::one(), 2u8.into()), rng);
+        let y: BigInt = sample_geometric_exp(&scale.recip(), rng).into();
+        if negative && y.is_zero() {
+            continue;
+        } else {
+            return if negative { -y } else { y };
         }
     }
 }
 
-/// sample from the discrete gaussian distribution.
+/// Sample from the discrete Gaussian distribution.
 ///
 /// `sample_discrete_gaussian(sigma, rng)` returns `BigInt` numbers distributed as
-/// $\mathcal{N}_\mathbb{Z}(0, sigma^2)$,
-/// using the given random number generator for base randomness.
+/// $\mathcal{N}_\mathbb{Z}(0, sigma^2)$, using the given random number generator for base
+/// randomness. Follows Algorithm 3 from [[CKS20]].
 ///
-/// # Citation
-/// * [CKS20 The Discrete Gaussian for Differential Privacy](https://arxiv.org/abs/2004.00010)
+/// [CKS20]: https://arxiv.org/pdf/2004.00010.pdf
 fn sample_discrete_gaussian<R: Rng + ?Sized>(sigma: &Ratio<BigUint>, rng: &mut R) -> BigInt {
     assert!(!sigma.denom().is_zero());
     if sigma.is_zero() {
         return 0.into();
     }
     let t = sigma.floor() + BigUint::one();
+
+    // no need to compute these parts of the probability term every iteration
+    let summand = sigma.pow(2) / t.clone();
+    // compute probability of accepting the laplace sample y
+    let prob = |term: Ratio<BigUint>| term.pow(2) * (sigma.pow(2) * BigUint::from(2u8)).recip();
+
     loop {
         let y = sample_discrete_laplace(&t, rng);
 
         // absolute value without type conversion
         let y_abs: Ratio<BigUint> = BigUint::new(y.to_u32_digits().1).into();
 
-        let sub = sigma.pow(2) / t.clone();
-        let fact = (sigma.pow(2) * BigUint::from(2u8)).recip();
-
-        let prob: Ratio<BigUint> = if y_abs < sub {
-            (sub - y_abs).pow(2) * fact
+        // unsigned subtraction-followed-by-square
+        let prob: Ratio<BigUint> = if y_abs < summand {
+            prob(summand.clone() - y_abs)
         } else {
-            (y_abs - sub).pow(2) * fact
+            prob(y_abs - summand.clone())
         };
+
         if sample_bernoulli_exp(&prob, rng) {
             return y;
         }
     }
 }
 
-/// samples `BigInt` numbers according to the discrete Gaussian distribution with mean zero.
+/// Samples `BigInt` numbers according to the discrete Gaussian distribution with mean zero.
 /// The distribution is defined over the integers, represented by arbitrary-precision integers.
 /// The sampling procedure follows [[CKS20]].
 ///
-/// [CKS20]: https://arxiv.org/abs/2004.00010
+/// [CKS20]: https://arxiv.org/pdf/2004.00010.pdf
 #[derive(Clone, Debug)]
 pub struct DiscreteGaussian {
     /// The standard deviation of the distribution.
@@ -284,9 +286,11 @@ mod tests {
     use crate::dp::Rational;
     use crate::vdaf::prg::{Seed, SeedStreamSha3};
 
-    use num_bigint::BigUint;
-    use rand::distributions::Distribution;
-    use rand::SeedableRng;
+    use num_bigint::{BigUint, Sign, ToBigInt, ToBigUint};
+    use num_traits::{One, Signed, ToPrimitive};
+    use rand::{distributions::Distribution, SeedableRng};
+    use statrs::distribution::{ChiSquared, ContinuousCDF, Normal};
+    use std::collections::HashMap;
 
     #[test]
     fn test_discrete_gaussian() {
@@ -301,8 +305,8 @@ mod tests {
         let samples1: Vec<i8> = (0..10)
             .map(|_| i8::try_from(sampler.sample(&mut rng)).unwrap())
             .collect();
-        assert_eq!(samples, vec!(3, 8, -7, 1, 2, 10, 8, -3, 0, 0));
-        assert_eq!(samples1, vec!(-1, 2, 5, -1, -1, 3, 3, -1, -1, 3));
+        assert_eq!(samples, vec!(5, -7, 10, -6, 0, -2, -3, 5, -2, -3));
+        assert_eq!(samples1, vec!(0, 4, 0, 1, 4, -5, 7, 10, 3, -9));
     }
 
     #[test]
@@ -331,5 +335,276 @@ mod tests {
             .collect();
 
         assert_eq!(samples2, samples1);
+    }
+
+    pub fn test_mean<FS: FnMut() -> BigInt>(
+        mut sampler: FS,
+        hyp_mean: f64,
+        hyp_var: f64,
+        alpha: f64,
+        n: u32,
+    ) -> bool {
+        // we test if the mean from our sampler is within the given error margin assuimng its
+        // normally distributed with mean hyp_mean and variance sqrt(hyp_var/n)
+        // this assumption is from the central limit theorem
+
+        // inverse cdf (quantile function) is F s.t. P[X<=F(p)]=p for X ~ N(0,1)
+        // (i.e. X from the standard normal distribution)
+        let probit = |p| Normal::new(0.0, 1.0).unwrap().inverse_cdf(p);
+
+        // x such that the probability of a N(0,1) variable attaining
+        // a value outside of (-x, x) is alpha
+        let z_stat = probit(alpha / 2.).abs();
+
+        // confidence interval for the mean
+        let abs_p_tol = Ratio::<BigInt>::from_float(z_stat * (hyp_var / n as f64).sqrt()).unwrap();
+
+        // take n samples from the distribution, compute empirical mean
+        let emp_mean = Ratio::<BigInt>::new((0..n).map(|_| sampler()).sum::<BigInt>(), n.into());
+
+        (emp_mean - Ratio::<BigInt>::from_float(hyp_mean).unwrap()).abs() < abs_p_tol
+    }
+
+    fn histogram(
+        d: &Vec<BigInt>,
+        bin_bounds: &Vec<Option<(BigInt, BigInt)>>,
+        smallest: BigInt,
+        largest: BigInt,
+    ) -> HashMap<Option<(BigInt, BigInt)>, u64> {
+        // a binned histogram of the samples in `d`
+        // used for chi_square test
+
+        fn insert<T>(hist: &mut HashMap<T, u64>, key: &T, val: u64) -> ()
+        where
+            T: Eq + std::hash::Hash + Clone,
+        {
+            if let Some(count) = hist.get(&key) {
+                hist.insert(key.clone(), count + val);
+            } else {
+                hist.insert(key.clone(), val);
+            }
+        }
+
+        // regular histogram
+        let mut hist = HashMap::<BigInt, u64>::new();
+        //binned histogram
+        let mut bin_hist = HashMap::<Option<(BigInt, BigInt)>, u64>::new();
+
+        for val in d {
+            // throw outliers with bound bins
+            if val < &smallest || val > &largest {
+                insert(&mut bin_hist, &None, 1);
+            } else {
+                insert(&mut hist, &val, 1);
+            }
+        }
+        // sort values into their bins
+        for bounds in bin_bounds {
+            if let Some((a, b)) = bounds {
+                for i in range_inclusive(a.clone(), b.clone()) {
+                    if let Some(count) = hist.get(&i) {
+                        insert(&mut bin_hist, &Some((a.clone(), b.clone())), *count);
+                    }
+                }
+            }
+        }
+        bin_hist
+    }
+
+    fn discrete_gauss_cdf_approx(
+        sigma: &BigUint,
+        bin_bounds: &Vec<Option<(BigInt, BigInt)>>,
+    ) -> HashMap<Option<(BigInt, BigInt)>, f64> {
+        // approximate bin probabilties from theoretical distribution
+        // formula is eq. (1) on parge 3 of the reference paper
+        let sigma = BigInt::from_biguint(Sign::Plus, sigma.clone());
+        let exp_sum = |lower: &BigInt, upper: &BigInt| {
+            range_inclusive(lower.clone(), upper.clone())
+                .map(|x: BigInt| {
+                    f64::exp(
+                        Ratio::<BigInt>::new(-(x.pow(2)), 2 * sigma.pow(2))
+                            .to_f64()
+                            .unwrap(),
+                    )
+                })
+                .sum::<f64>()
+        };
+        // denominator is approximate up to 10 times the variance
+        // outside of that probabilities should be very small
+        // so the error will be negligible for the test
+        let denom = exp_sum(&(-10i8 * sigma.pow(2)), &(10i8 * sigma.pow(2)));
+
+        // compute probabilities for each bin
+        let mut cdf = HashMap::new();
+        let mut p_outside = 1.0; // probability of not landing inside bin boundaries
+        for b in bin_bounds {
+            if let Some((y_low, y_hi)) = b {
+                let entry = exp_sum(&y_low, &y_hi) / denom;
+                assert!(!entry.is_zero() && entry.is_finite());
+                cdf.insert(Some((y_low.clone(), y_hi.clone())), entry);
+                p_outside -= entry;
+            }
+        }
+        cdf.insert(None, p_outside);
+        cdf
+    }
+
+    fn chi_square(sigma: &BigUint, n_bins: usize, alpha: f64) -> bool {
+        // perform pearsons chi-squared test on the discrete gaussian sampler
+
+        let sigma_signed = BigInt::from_biguint(Sign::Plus, sigma.clone());
+
+        // cut off at 3 times the std. and collect all outliers in a seperate bin
+        let global_bound = 3u8 * sigma_signed;
+
+        // bounds of bins
+        let lower_bounds = range_inclusive(-global_bound.clone(), global_bound.clone()).step_by(
+            ((2u8 * global_bound.clone()) / BigInt::from(n_bins))
+                .try_into()
+                .unwrap(),
+        );
+        let mut bin_bounds: Vec<Option<(BigInt, BigInt)>> = std::iter::zip(
+            lower_bounds.clone().take(n_bins),
+            lower_bounds.map(|x: BigInt| x - 1u8).skip(1),
+        )
+        .map(Some)
+        .collect();
+        bin_bounds.push(None); // bin for outliers
+
+        // approximate bin probabilities
+        let cdf = discrete_gauss_cdf_approx(sigma, &bin_bounds);
+
+        // chi2 stat wants at least 5 expected entries per bin
+        // so we choose n_samples in a way that gives us that
+        let n_samples = cdf
+            .iter()
+            .map(|(_, val)| f64::ceil(5.0 / *val) as u32)
+            .max()
+            .unwrap();
+
+        // collect that number of samples
+        let mut rng = SeedStreamSha3::from_seed(Seed::from_bytes([0u8; 16]));
+        let samples: Vec<BigInt> = (1..n_samples)
+            .map(|_| {
+                sample_discrete_gaussian(&Ratio::<BigUint>::from_integer(sigma.clone()), &mut rng)
+            })
+            .collect();
+
+        // make a histogram from the samples
+        let hist = histogram(
+            &samples,
+            &bin_bounds,
+            -global_bound.clone(),
+            global_bound.clone(),
+        );
+
+        // compute pearsons chi-squared test statistic
+        let stat: f64 = bin_bounds
+            .iter()
+            .map(|key| {
+                let expected = cdf.get(&(key.clone())).unwrap() * n_samples as f64;
+                if let Some(val) = hist.get(&(key.clone())) {
+                    (*val as f64 - expected).powf(2.) / expected
+                } else {
+                    0.0
+                }
+            })
+            .sum::<f64>();
+
+        let chi2 = ChiSquared::new((cdf.len() - 1) as f64).unwrap();
+        // the probability of observing X >= stat for X ~ chi-squared
+        // (the "p-value")
+        let p = 1.0 - chi2.cdf(stat);
+
+        p > alpha
+    }
+
+    #[test]
+    fn empirical_test_gauss() {
+        [100, 2000, 20000].iter().for_each(|p| {
+            let mut rng = SeedStreamSha3::from_seed(Seed::from_bytes([0u8; 16]));
+            let sampler = || {
+                sample_discrete_gaussian(
+                    &Ratio::<BigUint>::from_integer((*p).to_biguint().unwrap()),
+                    &mut rng,
+                )
+            };
+            let mean = 0.0;
+            let var = (p * p) as f64;
+            assert!(
+                test_mean(sampler, mean, var, 0.00001, 1000),
+                "Empirical evaluation of discrete Gaussian({:?}) sampler mean failed.",
+                p
+            );
+        });
+        // we only do chi square for std 100 because it's expensive
+        assert!(chi_square(&(100u8.to_biguint().unwrap()), 10, 0.05));
+    }
+
+    #[test]
+    fn empirical_test_bernoulli_mean() {
+        [2u8, 5u8, 7u8, 9u8].iter().for_each(|p| {
+            let mut rng = SeedStreamSha3::from_seed(Seed::from_bytes([0u8; 16]));
+            let sampler = || {
+                if sample_bernoulli(
+                    &Ratio::<BigUint>::new(BigUint::one(), (*p).into()),
+                    &mut rng,
+                ) {
+                    BigInt::one()
+                } else {
+                    BigInt::zero()
+                }
+            };
+            let mean = 1. / (*p as f64);
+            let var = mean * (1. - mean);
+            assert!(
+                test_mean(sampler, mean, var, 0.00001, 1000),
+                "Empirical evaluation of the Bernoulli(1/{:?}) distribution mean failed",
+                p
+            );
+        })
+    }
+
+    #[test]
+    fn empirical_test_geometric_mean() {
+        [2u8, 5u8, 7u8, 9u8].iter().for_each(|p| {
+            let mut rng = SeedStreamSha3::from_seed(Seed::from_bytes([0u8; 16]));
+            let sampler = || {
+                sample_geometric_exp(
+                    &Ratio::<BigUint>::new(BigUint::one(), (*p).into()),
+                    &mut rng,
+                )
+                .to_bigint()
+                .unwrap()
+            };
+            let p_prob = 1. - f64::exp(-(1. / *p as f64));
+            let mean = (1. - p_prob) / p_prob;
+            let var = (1. - p_prob) / p_prob.powi(2);
+            assert!(
+                test_mean(sampler, mean, var, 0.0001, 1000),
+                "Empirical evaluation of the Geometric(1-exp(-1/{:?})) distribution mean failed",
+                p
+            );
+        })
+    }
+
+    #[test]
+    fn empirical_test_laplace_mean() {
+        [2u8, 5u8, 7u8, 9u8].iter().for_each(|p| {
+            let mut rng = SeedStreamSha3::from_seed(Seed::from_bytes([0u8; 16]));
+            let sampler = || {
+                sample_discrete_laplace(
+                    &Ratio::<BigUint>::new(BigUint::one(), (*p).into()),
+                    &mut rng,
+                )
+            };
+            let mean = 0.0;
+            let var = (1. / *p as f64).powi(2);
+            assert!(
+                test_mean(sampler, mean, var, 0.0001, 1000),
+                "Empirical evaluation of the Laplace(0,1/{:?}) distribution mean failed",
+                p
+            );
+        })
     }
 }

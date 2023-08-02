@@ -27,10 +27,11 @@ thiserror = "1.0"
 
 # dependencies required if feature "experimental" is enabled
 fixed = { version = "1.23", optional = true }
-num-bigint = { version = "0.4.3", optional = true, features = ["rand"] }
+num-bigint = { version = "0.4.3", optional = true, features = ["rand", "serde"] }
+num-integer = { version = "0.1.45", optional = true }
+num-iter = { version = "0.1.43", optional = true }
 num-rational = { version = "0.4.1", optional = true }
 num-traits = { version = "0.2.15", optional = true }
-num-integer = { version = "0.1.45", optional = true }
 rand_core = { version = "0.6.4", optional = true }
 
 # dependencies required if feature "test-util" is enabled
@@ -56,6 +57,7 @@ hex = { version = "0.4.3", features = ["serde"] }
 # Enable test_vector module for test targets
 # https://github.com/rust-lang/cargo/issues/2911#issuecomment-749580481
 prio = { path = ".", features = ["test-util"] }
+statrs = "0.16"
 cfg-if = "1.0.0"
 once_cell = "1.18.0"
 zipf = "7.0.0"
@@ -63,7 +65,7 @@ hex-literal = "0.4.1"
 
 [features]
 default = ["crypto-dependencies"]
-experimental = ["bitvec", "fiat-crypto", "fixed", "rand", "rand_core", "num-bigint", "num-rational", "num-traits", "num-integer"]
+experimental = ["bitvec", "fiat-crypto", "fixed", "rand", "rand_core", "num-bigint", "num-rational", "num-traits", "num-integer", "num-iter"]
 test-util = ["rand", "serde_json", "num-bigint"]
 multithreaded = ["rayon"]
 prio2 = ["crypto-dependencies", "aes-gcm", "ring"]
@@ -95,6 +97,11 @@ rustdoc-args = ["--cfg", "docsrs"]
 name = "backward_compatibility"
 path = "tests/backward_compatibility.rs"
 required-features = ["prio2"]
+
+[[test]]
+name = "discrete_gauss"
+path = "tests/discrete_gauss.rs"
+required-features = ["experimental"]
 
 [package.metadata.cargo-all-features]
 skip_optional_dependencies = true

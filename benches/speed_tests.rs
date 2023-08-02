@@ -5,6 +5,14 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use criterion::{BatchSize, Throughput};
 #[cfg(feature = "experimental")]
 use fixed_macro::fixed;
+#[cfg(feature = "experimental")]
+use num_bigint::BigUint;
+#[cfg(feature = "experimental")]
+use num_rational::Ratio;
+#[cfg(feature = "experimental")]
+use num_traits::ToPrimitive;
+#[cfg(feature = "experimental")]
+use prio::dp::distributions::DiscreteGaussian;
 #[cfg(feature = "multithreaded")]
 use prio::flp::gadgets::ParallelSumMultithreaded;
 #[cfg(feature = "prio2")]
@@ -50,6 +58,30 @@ pub fn prng(c: &mut Criterion) {
         group.bench_function(BenchmarkId::from_parameter(size), |b| {
             b.iter(|| random_vector::<F>(size))
         });
+    }
+    group.finish();
+}
+
+/// Speed test for generating samples from the discrete gaussian distribution using different
+/// standard deviations.
+#[cfg(feature = "experimental")]
+pub fn dp_noise(c: &mut Criterion) {
+    let mut group = c.benchmark_group("dp_noise");
+    let mut rng = StdRng::seed_from_u64(RNG_SEED);
+
+    let test_stds = [
+        BigUint::from(u128::MAX).pow(2),
+        BigUint::from(u64::MAX),
+        BigUint::from(u32::MAX),
+        BigUint::from(5u8),
+    ];
+    for std in test_stds {
+        let sampler =
+            DiscreteGaussian::new_checked(Ratio::<BigUint>::from_integer(std.clone())).unwrap();
+        group.bench_function(
+            BenchmarkId::new("discrete_gaussian", std.to_f64().unwrap_or(f64::INFINITY)),
+            |b| b.iter(|| sampler.sample(&mut rng)),
+        );
     }
     group.finish();
 }
@@ -480,10 +512,19 @@ criterion_group!(
     count_vec,
     poly_mul,
     prng,
-    idpf
+    idpf,
+    dp_noise
 );
 #[cfg(all(not(feature = "prio2"), feature = "experimental"))]
-criterion_group!(benches, poplar1, prio3_client, poly_mul, prng, idpf);
+criterion_group!(
+    benches,
+    poplar1,
+    prio3_client,
+    poly_mul,
+    prng,
+    idpf,
+    dp_noise
+);
 #[cfg(all(feature = "prio2", not(feature = "experimental")))]
 criterion_group!(benches, prio3_client, count_vec, prng, poly_mul);
 #[cfg(all(not(feature = "prio2"), not(feature = "experimental")))]
