@@ -190,7 +190,7 @@ fn sample_discrete_gaussian<R: Rng + ?Sized>(sigma: &Ratio<BigUint>, rng: &mut R
 
     // no need to compute these parts of the probability term every iteration
     let summand = sigma.pow(2) / t.clone();
-    // compute probablilty of accepting the laplace sample y
+    // compute probability of accepting the laplace sample y
     let prob = |term: Ratio<BigUint>| term.pow(2) * (sigma.pow(2) * BigUint::from(2u8)).recip();
 
     loop {
@@ -415,7 +415,7 @@ mod tests {
         sigma: &BigUint,
         bin_bounds: &Vec<Option<(BigInt, BigInt)>>,
     ) -> HashMap<Option<(BigInt, BigInt)>, f64> {
-        // approximate bin probablilties from theoretical distribution
+        // approximate bin probabilties from theoretical distribution
         // formula is eq. (1) on parge 3 of the reference paper
         let sigma = BigInt::from_biguint(Sign::Plus, sigma.clone());
         let exp_sum = |lower: &BigInt, upper: &BigInt| {
@@ -430,13 +430,13 @@ mod tests {
                 .sum::<f64>()
         };
         // denominator is approximate up to 10 times the variance
-        // outside of that probablilties should be very small
+        // outside of that probabilities should be very small
         // so the error will be negligible for the test
         let denom = exp_sum(&(-10i8 * sigma.pow(2)), &(10i8 * sigma.pow(2)));
 
         // compute probabilities for each bin
         let mut cdf = HashMap::new();
-        let mut p_outside = 1.0; // probablilty of not landing inside bin boundaries
+        let mut p_outside = 1.0; // probability of not landing inside bin boundaries
         for b in bin_bounds {
             if let Some((y_low, y_hi)) = b {
                 let entry = exp_sum(&y_low, &y_hi) / denom;
@@ -471,7 +471,7 @@ mod tests {
         .collect();
         bin_bounds.push(None); // bin for outliers
 
-        // approximate bin probablilties
+        // approximate bin probabilities
         let cdf = discrete_gauss_cdf_approx(sigma, &bin_bounds);
 
         // chi2 stat wants at least 5 expected entries per bin
@@ -533,7 +533,7 @@ mod tests {
             let var = (p * p) as f64;
             assert!(
                 test_mean(sampler, mean, var, 0.00001, 1000),
-                "Emprircal evaluation of discrete Gaussian({:?}) sampler mean failed.",
+                "Empirical evaluation of discrete Gaussian({:?}) sampler mean failed.",
                 p
             );
         });
