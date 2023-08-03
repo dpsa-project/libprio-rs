@@ -373,18 +373,18 @@ mod tests {
 
     fn histogram(
         d: &Vec<BigInt>,
-        bin_bounds: &Vec<Option<(BigInt, BigInt)>>,
+        bin_bounds: &[Option<(BigInt, BigInt)>],
         smallest: BigInt,
         largest: BigInt,
     ) -> HashMap<Option<(BigInt, BigInt)>, u64> {
         // a binned histogram of the samples in `d`
         // used for chi_square test
 
-        fn insert<T>(hist: &mut HashMap<T, u64>, key: &T, val: u64) -> ()
+        fn insert<T>(hist: &mut HashMap<T, u64>, key: &T, val: u64)
         where
             T: Eq + std::hash::Hash + Clone,
         {
-            if let Some(count) = hist.get(&key) {
+            if let Some(count) = hist.get(key) {
                 hist.insert(key.clone(), count + val);
             } else {
                 hist.insert(key.clone(), val);
@@ -401,16 +401,14 @@ mod tests {
             if val < &smallest || val > &largest {
                 insert(&mut bin_hist, &None, 1);
             } else {
-                insert(&mut hist, &val, 1);
+                insert(&mut hist, val, 1);
             }
         }
         // sort values into their bins
-        for bounds in bin_bounds {
-            if let Some((a, b)) = bounds {
-                for i in range_inclusive(a.clone(), b.clone()) {
-                    if let Some(count) = hist.get(&i) {
-                        insert(&mut bin_hist, &Some((a.clone(), b.clone())), *count);
-                    }
+        for (a, b) in bin_bounds.iter().flatten() {
+            for i in range_inclusive(a.clone(), b.clone()) {
+                if let Some(count) = hist.get(&i) {
+                    insert(&mut bin_hist, &Some((a.clone(), b.clone())), *count);
                 }
             }
         }
@@ -419,7 +417,7 @@ mod tests {
 
     fn discrete_gauss_cdf_approx(
         sigma: &BigUint,
-        bin_bounds: &Vec<Option<(BigInt, BigInt)>>,
+        bin_bounds: &[Option<(BigInt, BigInt)>],
     ) -> HashMap<Option<(BigInt, BigInt)>, f64> {
         // approximate bin probabilties from theoretical distribution
         // formula is eq. (1) on parge 3 of the reference paper
@@ -443,13 +441,11 @@ mod tests {
         // compute probabilities for each bin
         let mut cdf = HashMap::new();
         let mut p_outside = 1.0; // probability of not landing inside bin boundaries
-        for b in bin_bounds {
-            if let Some((y_low, y_hi)) = b {
-                let entry = exp_sum(&y_low, &y_hi) / denom;
-                assert!(!entry.is_zero() && entry.is_finite());
-                cdf.insert(Some((y_low.clone(), y_hi.clone())), entry);
-                p_outside -= entry;
-            }
+        for (a, b) in bin_bounds.iter().flatten() {
+            let entry = exp_sum(a, b) / denom;
+            assert!(!entry.is_zero() && entry.is_finite());
+            cdf.insert(Some((a.clone(), b.clone())), entry);
+            p_outside -= entry;
         }
         cdf.insert(None, p_outside);
         cdf
@@ -483,8 +479,8 @@ mod tests {
         // chi2 stat wants at least 5 expected entries per bin
         // so we choose n_samples in a way that gives us that
         let n_samples = cdf
-            .iter()
-            .map(|(_, val)| f64::ceil(5.0 / *val) as u32)
+            .values()
+            .map(|val| f64::ceil(5.0 / *val) as u32)
             .max()
             .unwrap();
 
@@ -497,12 +493,7 @@ mod tests {
             .collect();
 
         // make a histogram from the samples
-        let hist = histogram(
-            &samples,
-            &bin_bounds,
-            -global_bound.clone(),
-            global_bound.clone(),
-        );
+        let hist = histogram(&samples, &bin_bounds, -global_bound.clone(), global_bound);
 
         // compute pearsons chi-squared test statistic
         let stat: f64 = bin_bounds
