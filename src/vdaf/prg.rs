@@ -61,7 +61,7 @@ impl<const SEED_SIZE: usize> AsMut<[u8]> for Seed<SEED_SIZE> {
 #[cfg(feature = "experimental")]
 impl<const SEED_SIZE: usize> Default for Seed<SEED_SIZE> {
     fn default() -> Self {
-        Self::generate().unwrap()
+        Seed([0u8; SEED_SIZE])
     }
 }
 

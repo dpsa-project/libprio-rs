@@ -373,7 +373,7 @@ where
             // (b) Put noise into field.
             //
             // The noise is generated as BigInt, but has to fit into the Field128,
-            // which has modulus `Field129::modulus()`. Thus we use `BigInt::mod_floor()`
+            // which has modulus `Field128::modulus()`. Thus we use `BigInt::mod_floor()`
             // to calculate `noise mod modulus`. This value fits into `u128`, and
             // can be then put into the field.
             //

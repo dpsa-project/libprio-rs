@@ -1,3 +1,9 @@
+// Copyright (c) 2023 ISRG
+// SPDX-License-Identifier: MPL-2.0
+//
+// This file contains code covered by the following copyright and permission notice
+// and has been modified by ISRG and collaborators.
+//
 // Copyright (c) 2022 President and Fellows of Harvard College
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy

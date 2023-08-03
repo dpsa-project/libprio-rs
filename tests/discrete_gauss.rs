@@ -8,7 +8,11 @@ use rand::SeedableRng;
 use serde::Deserialize;
 
 /// A test vector of discrete Gaussian samples, produced by the python reference
-/// implementation for [[CKS20]].
+/// implementation for [[CKS20]]. The script used to generate the test vector can
+/// be found in this gist:
+/// https://gist.github.com/ooovi/529c00fc8a7eafd068cd076b78fc424e
+/// The python reference implementation is here:
+/// https://github.com/IBM/discrete-gaussian-differential-privacy
 ///
 /// [CKS20]: https://arxiv.org/pdf/2004.00010.pdf
 #[derive(Debug, Eq, PartialEq, Deserialize)]
