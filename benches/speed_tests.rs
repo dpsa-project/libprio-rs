@@ -76,8 +76,7 @@ pub fn dp_noise(c: &mut Criterion) {
         BigUint::from(5u8),
     ];
     for std in test_stds {
-        let sampler =
-            DiscreteGaussian::new_checked(Ratio::<BigUint>::from_integer(std.clone())).unwrap();
+        let sampler = DiscreteGaussian::new(Ratio::<BigUint>::from_integer(std.clone())).unwrap();
         group.bench_function(
             BenchmarkId::new("discrete_gaussian", std.to_f64().unwrap_or(f64::INFINITY)),
             |b| b.iter(|| sampler.sample(&mut rng)),

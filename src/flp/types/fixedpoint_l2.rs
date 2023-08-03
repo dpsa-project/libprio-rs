@@ -195,7 +195,7 @@ use std::{convert::TryFrom, convert::TryInto, fmt::Debug, marker::PhantomData};
 /// particular, exactly the following types are supported:
 /// `FixedI16<U15>`, `FixedI32<U31>` and `FixedI64<U63>`.
 ///
-/// The type implements the [`TypeWithNoise`] trait. The [`add_noise_to_result`] function adds
+/// The type implements the [`TypeWithNoise`] trait. The `add_noise_to_result` function adds
 /// discrete Gaussian noise to an aggregate share, calibrated to the passed privacy budget.
 /// This will result in the aggregate satisfying zero-concentrated differential privacy.
 ///
