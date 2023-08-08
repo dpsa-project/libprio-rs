@@ -359,8 +359,10 @@ where
     ) -> Result<(), FlpError> {
         // generate and add discrete gaussian noise for each entry
 
-        // 0. compute sensitivity of aggregation, namely 2^n
+        // 0. Compute sensitivity of aggregation, namely 2^n.
         let sensitivity = BigUint::from(2u128).pow(self.bits_per_entry as u32);
+        // Also create a BigInt containing the field modulus.
+        let modulus = BigInt::from(Field128::modulus());
 
         // 1. initialize sampler
         let sampler = dp_strategy.create_distribution(Ratio::from_integer(sensitivity))?;
@@ -380,7 +382,7 @@ where
             // Note: we cannot use the operator `%` here, since it is not the mathematical
             // modulus operation: for negative inputs and positive modulus it gives a
             // negative result!
-            let noise: BigInt = noise.mod_floor(&BigInt::from(Field128::modulus()));
+            let noise: BigInt = noise.mod_floor(&modulus);
             let noise: u128 = noise.try_into().map_err(|e: TryFromBigIntError<BigInt>| {
                 FlpError::DifferentialPrivacy(DpError::BigIntConversion(e))
             })?;
@@ -789,13 +791,12 @@ mod tests {
         let strategy = ZCdpDiscreteGaussian::from_budget(ZCdpBudget::new(
             Rational::from_unsigned(100u8, 3u8).unwrap(),
         ));
-        let _ = &vsum
-            .add_noise(
-                &strategy,
-                &mut v,
-                &mut SeedStreamSha3::from_seed(Seed::from_bytes([0u8; 16])),
-            )
-            .unwrap();
+        vsum.add_noise(
+            &strategy,
+            &mut v,
+            &mut SeedStreamSha3::from_seed(Seed::from_bytes([0u8; 16])),
+        )
+        .unwrap();
         assert_eq!(
             vsum.decode_result(&v, 1).unwrap(),
             match n {

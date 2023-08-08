@@ -378,11 +378,7 @@ mod tests {
         where
             T: Eq + std::hash::Hash + Clone,
         {
-            if let Some(count) = hist.get(key) {
-                hist.insert(key.clone(), count + val);
-            } else {
-                hist.insert(key.clone(), val);
-            }
+            *hist.entry(key.clone()).or_default() += val;
         }
 
         // regular histogram

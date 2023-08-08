@@ -1,13 +1,25 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Differential privacy (DP) primitives.
+//!
+//! There are three main traits defined in this module:
+//!
+//!  - `DifferentialPrivacyBudget`: Implementors should be types of budgets for DP-mechanisms.
+//!    Examples: zCDP, ApproximateDP (Epsilon-Delta), PureDP
+//!
+//!  - `DifferentialPrivacyDistribution`: Distribution from which noise is sampled.
+//!    Examples: DiscreteGaussian, DiscreteLaplace
+//!
+//!  - `DifferentialPrivacyStrategy`: This is a combination of choices for budget and distribution.
+//!    Examples: zCDP-DiscreteGaussian, EpsilonDelta-DiscreteGaussian
+//!
 use num_bigint::{BigInt, BigUint, TryFromBigIntError};
 use num_rational::{BigRational, Ratio};
 
 /// Errors propagated by methods in this module.
 #[derive(Debug, thiserror::Error)]
 pub enum DpError {
-    /// Tried to use an infinite float as privacy parameter.
+    /// Tried to use an invalid float as privacy parameter.
     #[error(
         "DP error: input value was not a valid privacy parameter. \
              It should to be a non-negative, finite float."
@@ -106,5 +118,3 @@ pub trait DifferentialPrivacyStrategy {
 }
 
 pub mod distributions;
-
-mod experimental_strategy;
