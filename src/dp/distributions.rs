@@ -410,7 +410,9 @@ mod tests {
         bin_bounds: &[Option<(BigInt, BigInt)>],
     ) -> HashMap<Option<(BigInt, BigInt)>, f64> {
         // approximate bin probabilties from theoretical distribution
-        // formula is eq. (1) on parge 3 of the reference paper
+        // formula is eq. (1) on page 3 of [[CKS20]]
+        //
+        // [CKS20]: https://arxiv.org/pdf/2004.00010.pdf
         let sigma = BigInt::from_biguint(Sign::Plus, sigma.clone());
         let exp_sum = |lower: &BigInt, upper: &BigInt| {
             range_inclusive(lower.clone(), upper.clone())
