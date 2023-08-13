@@ -58,6 +58,10 @@ impl Rational {
 
 impl TryFrom<f32> for Rational {
     type Error = DpError;
+    /// Constructs a `Rational` from a given `f32` value.
+    ///
+    /// The special float values (NaN, positive and negative infinity) result in
+    /// an error. All other values are represented exactly, without rounding errors.
     fn try_from(value: f32) -> Result<Self, DpError> {
         match BigRational::from_float(value) {
             Some(y) => Ok(Rational(Ratio::<BigUint>::new(
