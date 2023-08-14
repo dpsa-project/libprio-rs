@@ -70,13 +70,14 @@ pub fn dp_noise(c: &mut Criterion) {
     let mut rng = StdRng::seed_from_u64(RNG_SEED);
 
     let test_stds = [
-        BigUint::from(u128::MAX).pow(2),
-        BigUint::from(u64::MAX),
-        BigUint::from(u32::MAX),
-        BigUint::from(5u8),
+        Ratio::<BigUint>::from_integer(BigUint::from(u128::MAX)).pow(2),
+        Ratio::<BigUint>::from_integer(BigUint::from(u64::MAX)),
+        Ratio::<BigUint>::from_integer(BigUint::from(u32::MAX)),
+        Ratio::<BigUint>::from_integer(BigUint::from(5u8)),
+        Ratio::<BigUint>::new(BigUint::from(10000u32), BigUint::from(23u32)),
     ];
     for std in test_stds {
-        let sampler = DiscreteGaussian::new(Ratio::<BigUint>::from_integer(std.clone())).unwrap();
+        let sampler = DiscreteGaussian::new(std.clone()).unwrap();
         group.bench_function(
             BenchmarkId::new("discrete_gaussian", std.to_f64().unwrap_or(f64::INFINITY)),
             |b| b.iter(|| sampler.sample(&mut rng)),
