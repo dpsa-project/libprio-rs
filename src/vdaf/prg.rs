@@ -47,8 +47,23 @@ impl<const SEED_SIZE: usize> Seed<SEED_SIZE> {
         Ok(Self::from_bytes(seed))
     }
 
-    pub(crate) fn from_bytes(seed: [u8; SEED_SIZE]) -> Self {
+    /// Construct seed from a byte slice.
+    pub fn from_bytes(seed: [u8; SEED_SIZE]) -> Self {
         Self(seed)
+    }
+}
+
+#[cfg(feature = "experimental")]
+impl<const SEED_SIZE: usize> AsMut<[u8]> for Seed<SEED_SIZE> {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.0.as_mut()
+    }
+}
+
+#[cfg(feature = "experimental")]
+impl<const SEED_SIZE: usize> Default for Seed<SEED_SIZE> {
+    fn default() -> Self {
+        Seed([0u8; SEED_SIZE])
     }
 }
 
