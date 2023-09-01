@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Differential privacy (DP) primitives.
+use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
 /// Positive rational number to represent DP and noise distribution parameters in protocol messages
 /// and manipulate them without rounding errors.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Rational {
     /// Numerator.
     pub numerator: u32,
