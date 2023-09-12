@@ -12,7 +12,7 @@ use crate::{
     vdaf::{
         xof::{Seed, Xof, XofShake128},
         Aggregatable, Aggregator, Client, Collector, PrepareTransition, Vdaf, VdafError,
-    }, dp::distributions::ZCdpDiscreteGaussian,
+    },
 };
 use bitvec::{prelude::Lsb0, vec::BitVec};
 use rand_core::RngCore;
@@ -27,7 +27,7 @@ use std::{
 };
 use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq};
 
-use super::AggregatorWithNoise;
+
 
 const DST_SHARD_RANDOMNESS: u16 = 1;
 const DST_CORR_INNER: u16 = 2;

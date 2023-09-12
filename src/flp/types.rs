@@ -3,8 +3,7 @@
 //! A collection of [`Type`] implementations.
 
 
-#[cfg(feature = "experimental")]
-use crate::dp::distributions::ZCdpDiscreteGaussian;
+
 use crate::field::{FftFriendlyFieldElement, FieldElementWithIntegerExt};
 use crate::flp::gadgets::{Mul, ParallelSumGadget, PolyEval};
 use crate::flp::{FlpError, Gadget, Type};
