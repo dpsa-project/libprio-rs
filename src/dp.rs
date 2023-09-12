@@ -16,6 +16,8 @@
 //!
 use num_bigint::{BigInt, BigUint, TryFromBigIntError};
 use num_rational::{BigRational, Ratio};
+use serde::{Deserialize, Serialize};
+use std::{fmt, str::FromStr};
 
 /// Errors propagated by methods in this module.
 #[derive(Debug, thiserror::Error)]
@@ -38,8 +40,34 @@ pub enum DpError {
 
 /// Positive arbitrary precision rational number to represent DP and noise distribution parameters in
 /// protocol messages and manipulate them without rounding errors.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Rational(Ratio<BigUint>);
+
+impl fmt::Display for Rational {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// An error indicating a string could not be parsed as Rational.
+#[derive(Debug)]
+pub struct RationalParseError;
+
+impl fmt::Display for RationalParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "RationalParseError")
+    }
+}
+
+impl FromStr for Rational {
+    type Err = RationalParseError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match Ratio::<BigUint>::from_str(s) {
+            Ok(r) => Ok(Rational(r)),
+            Err(_) => Err(RationalParseError),
+        }
+    }
+}
 
 impl Rational {
     /// Construct a [`Rational`] number from numerator `n` and denominator `d`. Errors if denominator is zero.
@@ -83,6 +111,7 @@ pub trait DifferentialPrivacyDistribution {}
 /// Zero-concentrated differential privacy (ZCDP) budget as defined in [[BS16]].
 ///
 /// [BS16]: https://arxiv.org/pdf/1605.02065.pdf
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Ord, PartialOrd)]
 pub struct ZCdpBudget {
     epsilon: Ratio<BigUint>,
 }
@@ -94,6 +123,11 @@ impl ZCdpBudget {
     /// [CKS20]: https://arxiv.org/pdf/2004.00010.pdf
     pub fn new(epsilon: Rational) -> Self {
         Self { epsilon: epsilon.0 }
+    }
+
+    /// Return the `epsilon` parameter of this strategy.
+    pub fn get_epsilon(&self) -> Rational {
+        Rational(self.epsilon.clone())
     }
 }
 
