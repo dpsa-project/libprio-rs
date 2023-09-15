@@ -27,8 +27,6 @@ use std::{
 };
 use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq};
 
-
-
 const DST_SHARD_RANDOMNESS: u16 = 1;
 const DST_CORR_INNER: u16 = 2;
 const DST_CORR_LEAF: u16 = 3;
