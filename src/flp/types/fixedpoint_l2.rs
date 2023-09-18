@@ -410,10 +410,14 @@ where
             return Err(FlpError::Encode("unexpected input length".into()));
         }
 
+        println!("encoding measurement.");
+
         // Convert the fixed-point encoded input values to field integers. We do
         // this once here because we need them for encoding but also for
         // computing the norm.
         let integer_entries = fp_entries.iter().map(|x| x.to_field_integer());
+
+        println!("{fp_entries:?} => {integer_entries:?}");
 
         // (I) Vector entries.
         // Encode the integer entries bitwise, and write them into the `encoded`
@@ -459,8 +463,10 @@ where
             }
         };
         let mut res = Vec::with_capacity(data.len());
+        println!("libprio: decoding result.");
         for d in data {
             let decoded = <T as CompatibleFloat>::to_float(*d, num_measurements);
+            println!("convert {d} => {decoded}");
             res.push(decoded);
         }
         Ok(res)
