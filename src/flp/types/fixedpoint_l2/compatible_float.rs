@@ -58,6 +58,7 @@ impl CompatibleFloat for FixedI64<U63> {
         // reinterpret as unsigned
         let u = i as u64;
         // invert the left-most bit to de-two-complement
+        println!("converting to_field_integer: i: {i}, u: {u}");
         u128::from(u ^ (1 << 63))
     }
 }
@@ -65,6 +66,7 @@ impl CompatibleFloat for FixedI64<U63> {
 /// Return an `f64` representation of the field element `s`, assuming it is the computation result
 /// of a `c`-client fixed point vector summation with `n` fractional bits.
 fn to_float_bits(s: Field128, c: u128, n: i32) -> f64 {
+    println!("converting to_float_bits: s: {s}, c: {c}, n: {n}");
     // get integer representation of field element
     let s_int: u128 = <Field128 as FieldElementWithInteger>::Integer::from(s);
 
